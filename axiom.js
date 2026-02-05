@@ -8,7 +8,7 @@ const Pino = require("pino")
 const readline = require("readline")
 const fs = require("fs")
 
-// ========== GLOBAL STATE ==========
+// ───────── GLOBAL STATE ─────────
 let startTime = Date.now()
 let msgCount = 0
 let errCount = 0
@@ -17,7 +17,10 @@ let lastCPU = 0
 let reconnecting = false
 global.sock = null
 
-// STATUS PANEL GLOBAL
+// Pairing number — akan terisi lewat menu
+global.pairingNumber = null
+
+// STATUS PANEL
 global.currentStatus = "Menunggu..."
 global.currentDevice = "-"
 
@@ -33,7 +36,7 @@ setInterval(() => {
     lastCPUTime = now
 }, 1000)
 
-// ========== HELPER ==========
+// ───────── HELPERS ─────────
 function formatUptime(ms) {
     let s = Math.floor(ms / 1000)
     let m = Math.floor(s / 60)
@@ -42,16 +45,14 @@ function formatUptime(ms) {
     m %= 60
     return `${h}h ${m}m ${s}s`
 }
-
 function getRam() {
     return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
 }
-
 function green(t) { return `\x1b[32m${t}\x1b[0m` }
 function red(t) { return `\x1b[31m${t}\x1b[0m` }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
 
-// ========== PANEL UI ==========
+// ───────── PANEL UI ─────────
 function panel(ping = "-", showSource = false) {
     console.clear()
     console.log(`
@@ -83,13 +84,13 @@ ${showSource ? `
 │ Author       : Rangga
 │ Script Writer: ChatGPT
 │ Designer     : Rangga & ChatGPT
-│ Versi Bot    : Ultra Low RAM v4.0
+│ Versi Bot    : Ultra Pairing Ready
 ` : ""}
 └─────────────────────────────────────────────┘
 `)
 }
 
-// ========== MENU TERMINAL ==========
+// ───────── MENU INPUT ─────────
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -103,64 +104,59 @@ function setupMenu(sock) {
                 console.log(red("\n→ Restarting bot...\n"))
                 restartBot()
                 break
+
             case "2":
                 panel()
                 break
+
             case "3":
                 if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
-                else console.log(red("Tidak ada QR."))
+                else console.log(red("Tidak ada QR tersedia."))
                 break
+
             case "4":
-                rl.question("Masukkan nomor HP (contoh 6281234567890): ", async (num) => {
-                    if (!num) return console.log(red("Nomor tidak valid"))
-                    if (!global.sock) return console.log(red("Bot belum siap"))
-
-                    global.currentStatus = `Menunggu kode pairing dari ${num}...`
-                    panel()
-
-                    try {
-                        const pairingCode = await global.sock.requestPairingCode(num)
-                        console.log(green(`→ Pairing code: ${pairingCode}`))
-                        global.currentStatus = `Kode pairing diterima. Menunggu koneksi...`
-                        panel()
-                    } catch (e) {
-                        console.log(red("→ Pairing gagal: " + e.message))
-                        global.currentStatus = "Pairing gagal"
-                        panel()
+                rl.question("Masukkan nomor HP target (contoh 6281234567890): ", async (num) => {
+                    if (!num) {
+                        console.log(red("Nomor tidak valid!"))
+                        return panel()
                     }
+                    global.pairingNumber = num.replace(/[^0-9]/g,"")
+                    console.log(green(`→ Nomor pairing disimpan: ${global.pairingNumber}`))
+                    global.currentStatus = `Pairing siap: ${global.pairingNumber}`
+                    panel()
                 })
                 break
+
             case "5":
                 console.log(red("→ Keluar bot"))
                 process.exit(0)
                 break
+
             case "6":
                 panel("-", true)
                 break
+
             default:
                 console.log(yellow("Perintah tidak dikenal."))
         }
     })
 }
 
-// ========== ANTI CORRUPT ==========
+// ───────── AUTH SAFETY ─────────
 function checkAuthIntegrity() {
     try {
         if (!fs.existsSync("./auth")) return true
         let files = fs.readdirSync("./auth")
         if (files.length < 2) return true
         if (!fs.existsSync("./auth/creds.json")) return true
-
         try { JSON.parse(fs.readFileSync("./auth/creds.json", "utf8")) }
         catch { return true }
-
         return false
     } catch {
         return true
     }
 }
 
-// ========== RESTART ==========
 function restartBot() {
     startTime = Date.now()
     msgCount = 0
@@ -176,12 +172,12 @@ function restartBot() {
     startBot()
 }
 
-// ========== START BOT ==========
+// ───────── START BOT ─────────
 async function startBot() {
     try {
         if (checkAuthIntegrity()) {
             try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-            global.currentStatus = "Auth corrupt, hapus & scan ulang"
+            global.currentStatus = "Auth corrupt → Delete & scan ulang"
             panel()
         }
 
@@ -198,7 +194,6 @@ async function startBot() {
             auth: state,
             logger: Pino({ level: "silent" })
         })
-
         global.sock = sock
         setupMenu(sock)
 
@@ -206,10 +201,21 @@ async function startBot() {
         global.currentDevice = "-"
         panel()
 
-        // CONNECTION UPDATE
         sock.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
+            // Saat ada event QR + mulai konek
+            if ((!!qr || connection === "connecting") && global.pairingNumber) {
+                try {
+                    const pairingCode = await sock.requestPairingCode(global.pairingNumber)
+                    console.log(green(`\n→ Pairing code untuk ${global.pairingNumber}:`), pairingCode)
+                    console.log(yellow("→ Silakan scan di HP target dalam 60 detik.\n"))
+                } catch (e) {
+                    console.log(red("→ Gagal generate pairing code:"), e.message)
+                }
+            }
+
+            // Normal QR output
             if (qr) {
                 global.lastQR = qr
                 global.currentStatus = "Scan QR!"
@@ -218,6 +224,7 @@ async function startBot() {
                 qrcode.generate(qr, { small: true })
             }
 
+            // OPEN
             if (connection === "open") {
                 let dev = sock.user.id.split(":")[0]
                 if (dev === "s.whatsapp.net") {
@@ -230,6 +237,7 @@ async function startBot() {
                 panel()
             }
 
+            // CLOSE / RECONNECT
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
                 global.currentStatus = red("Terputus, reconnect...")
@@ -248,18 +256,20 @@ async function startBot() {
 
         sock.ev.on("creds.update", saveCreds)
 
-        // PESAN MASUK
         sock.ev.on("messages.upsert", async ({ messages }) => {
             let msg = messages[0]
             if (!msg.message) return
             if (!msg.key.fromMe) msgCount++
+
             let from = msg.key.remoteJid
             let text =
                 msg.message.conversation ||
                 msg.message.extendedTextMessage?.text ||
                 ""
+
             lastLog = `${from} → ${text}`
             panel()
+
             if (text === "ping") {
                 let t = Date.now()
                 await sock.sendMessage(from, { text: "pong!" })
@@ -268,13 +278,11 @@ async function startBot() {
             }
         })
 
-        // ANTI CRASH
         process.on("uncaughtException", (err) => {
             errCount++
             lastLog = red("Error: " + err.message)
             panel()
         })
-
         process.on("unhandledRejection", (err) => {
             errCount++
             lastLog = red("Reject: " + err)
