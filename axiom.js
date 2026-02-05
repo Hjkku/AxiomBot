@@ -1,246 +1,183 @@
 const {
     default: makeWASocket,
     useMultiFileAuthState,
-    fetchLatestBaileysVersion
+    fetchLatestBaileysVersion,
+    DisconnectReason
 } = require("@whiskeysockets/baileys")
 const qrcode = require("qrcode-terminal")
 const Pino = require("pino")
 const readline = require("readline")
 const fs = require("fs")
+const { Boom } = require("@hapi/boom")
 
-// GLOBAL STATE
-let startTime = Date.now()
-let msgCount = 0
-let errCount = 0
-let lastLog = "-"
-let lastCPU = 0
-let reconnecting = false
-global.sock = null
+// --- GLOBAL STATE ---
+let state = {
+    startTime: Date.now(),
+    msgCount: 0,
+    errCount: 0,
+    lastLog: "Sistem Siap",
+    lastCPU: "0",
+    ping: "-",
+    reconnecting: false,
+    lastQR: null,
+    sock: null
+}
 
-// CPU USAGE LIGHT
+// --- CPU MONITORING ---
 let lastCPUTime = process.cpuUsage()
 setInterval(() => {
     const now = process.cpuUsage()
-    lastCPU = (
-        (now.user - lastCPUTime.user + now.system - lastCPUTime.system) /
-        1000
-    ).toFixed(1)
+    const user = now.user - lastCPUTime.user
+    const system = now.system - lastCPUTime.system
+    state.lastCPU = ((user + system) / 1000).toFixed(1)
     lastCPUTime = now
 }, 1000)
 
-// HELPERS
-function formatUptime(ms) {
-    let s = Math.floor(ms / 1000)
-    let m = Math.floor(s / 60)
-    let h = Math.floor(m / 60)
-    s %= 60
-    m %= 60
-    return `${h}h ${m}m ${s}s`
+// --- HELPERS ---
+const formatUptime = (ms) => {
+    let s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60)
+    return `${h}h ${m % 60}m ${s % 60}s`
 }
 
-function getRam() {
-    return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
+const getRam = () => (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
+const color = {
+    green: (t) => `\x1b[32m${t}\x1b[0m`,
+    red: (t) => `\x1b[31m${t}\x1b[0m`,
+    yellow: (t) => `\x1b[33m${t}\x1b[0m`,
+    cyan: (t) => `\x1b[36m${t}\x1b[0m`
 }
 
-function green(t){return `\x1b[32m${t}\x1b[0m`}
-function red(t){return `\x1b[31m${t}\x1b[0m`}
-function yellow(t){return `\x1b[33m${t}\x1b[0m`}
-
-// PANEL
-function panel(status, device, ping = "-", showSource = false) {
+// --- UI PANEL ---
+function refreshPanel(status = "Terhubung ✓", showSource = false) {
     console.clear()
+    const device = state.sock?.user?.id ? state.sock.user.id.split(":")[0] : "Belum Login"
+    
     console.log(`
 ┌─────────────────────────────────────────────┐
-│        ${green("AXIOM BOT PANEL • ULTRA")}        │
+│          ${color.cyan("WHATSAPP BOT PANEL ULTRA")}        │
 ├─────────────────────────────────────────────┤
 │ Status : ${status}
 │ Device : ${device}
-│ Uptime : ${formatUptime(Date.now() - startTime)}
-│ CPU    : ${lastCPU} ms
+│ Uptime : ${formatUptime(Date.now() - state.startTime)}
+│ CPU    : ${state.lastCPU} ms
 │ RAM    : ${getRam()}
-│ Ping   : ${ping}
-│ Msg In : ${msgCount}
-│ Errors : ${errCount}
+│ Ping   : ${state.ping}
+│ Msg In : ${state.msgCount}
+│ Errors : ${state.errCount}
 ├─────────────────────────────────────────────┤
-│ Menu:
-│ 1) Restart Bot
-│ 2) Clear Panel
-│ 3) Tampilkan QR
-│ 4) Matikan Bot
-│ 5) Logout Auth
-│ 6) Source / Credits
+│ Menu Interaktif:
+│ 1) Restart Bot       2) Refresh Panel
+│ 3) Tampilkan QR      4) Keluar/Logout
+│ 5) Credits
 ├─────────────────────────────────────────────┤
 │ Log Terakhir:
-│ ${yellow(lastLog)}
-${showSource ? `
-├─────────────────────────────────────────────┤
-│ ${green("Source & Credits")}
+│ ${color.yellow(state.lastLog)}
+${showSource ? `├─────────────────────────────────────────────┤
+│ ${color.green("Source & Credits")}
 │ Author       : Rangga
-│ Script Writer: ChatGPT
-│ Designer     : Rangga & ChatGPT
-│ Versi Bot    : AXIOM Ultra Stable
-` : ""}
+│ Script Writer: Gemini & Rangga
+│ Versi Bot    : Ultra Low RAM v2.5` : ""}
 └─────────────────────────────────────────────┘
 `)
 }
 
-// TERMINAL MENU
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
+// --- TERMINAL INTERFACE ---
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+rl.on("line", (input) => {
+    switch (input.trim()) {
+        case "1": restartBot(); break
+        case "2": refreshPanel(); break
+        case "3": 
+            if (state.lastQR) qrcode.generate(state.lastQR, { small: true })
+            else console.log(color.red("QR tidak tersedia atau sudah login."))
+            break
+        case "4": process.exit(0); break
+        case "5": refreshPanel("Info Sistem", true); break
+    }
 })
 
-function setupMenu(sock) {
-    rl.removeAllListeners("line")
-    rl.on("line", async (input) => {
-        switch (input.trim()) {
+// --- CORE FUNCTION ---
+async function startBot() {
+    const { state: authState, saveCreds } = await useMultiFileAuthState("./auth")
+    const { version } = await fetchLatestBaileysVersion()
 
-            case "1":
-                console.log(red("\n→ Restarting bot...\n"))
+    const sock = makeWASocket({
+        version,
+        auth: authState,
+        logger: Pino({ level: "silent" }),
+        printQRInTerminal: false // Kita handle manual via panel
+    })
+
+    state.sock = sock
+
+    sock.ev.on("connection.update", async (update) => {
+        const { qr, connection, lastDisconnect } = update
+
+        if (qr) {
+            state.lastQR = qr
+            refreshPanel(color.yellow("Menunggu Scan..."))
+            qrcode.generate(qr, { small: true })
+        }
+
+        if (connection === "open") {
+            state.lastQR = null
+            state.reconnecting = false
+            state.lastLog = "Bot Berhasil Terhubung"
+            refreshPanel(color.green("Terhubung ✓"))
+        }
+
+        if (connection === "close") {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
+            state.lastQR = null
+            
+            if (reason === DisconnectReason.loggedOut) {
+                state.lastLog = "Session Logout, menghapus data..."
+                fs.rmSync("./auth", { recursive: true, force: true })
                 restartBot()
-                break
+            } else {
+                state.lastLog = "Koneksi terputus, mencoba kembali..."
+                setTimeout(startBot, 3000)
+            }
+        }
+    })
 
-            case "2":
-                panel("Terhubung ✓", sock?.user?.id?.split(":")[0] || "-")
-                break
+    sock.ev.on("creds.update", saveCreds)
 
-            case "3":
-                if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
-                else console.log(red("Tidak ada QR."))
-                break
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        if (type !== "notify") return
+        const msg = messages[0]
+        if (!msg.message || msg.key.fromMe) return
 
-            case "4":
-                console.log(red("→ Bot dimatikan"))
-                process.exit(0)
-                break
+        state.msgCount++
+        const from = msg.key.remoteJid
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
+        
+        state.lastLog = `${from.split("@")[0]} : ${text.substring(0, 20)}`
+        refreshPanel()
 
-            case "5":
-                console.log(red("\n→ Menghapus session auth...\n"))
-                try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-                console.log(green("Sukses hapus auth. Restart bot & scan ulang."))
-                break
-
-            case "6":
-                panel("Terhubung ✓", sock?.user?.id?.split(":")[0], "-", true)
-                break
-
-            default:
-                console.log(yellow("Perintah tidak dikenal."))
+        if (text.toLowerCase() === "ping") {
+            const start = Date.now()
+            await sock.sendMessage(from, { text: "Pong! 🏓" })
+            state.ping = (Date.now() - start) + "ms"
+            refreshPanel()
         }
     })
 }
 
-// INTERNAL RESTART
 function restartBot() {
-    startTime = Date.now()
-    msgCount = 0
-    errCount = 0
-    lastLog = "-"
-    reconnecting = false
-
-    delete require.cache[require.resolve("./axiom.js")]
-    process.removeAllListeners("uncaughtException")
-    process.removeAllListeners("unhandledRejection")
-
+    state.startTime = Date.now()
+    state.msgCount = 0
+    state.errCount = 0
+    if (state.sock) state.sock.end()
     startBot()
 }
 
-// START BOT
-async function startBot() {
-    try {
-        if (global.sock) {
-            try { global.sock.end?.() } catch {}
-            try { global.sock.ws?.close?.() } catch {}
-        }
+// --- ANTI CRASH ---
+process.on("uncaughtException", (err) => {
+    state.errCount++
+    state.lastLog = `Error: ${err.message}`
+    refreshPanel(color.red("Critical Error!"))
+})
 
-        const { state, saveCreds } = await useMultiFileAuthState("./auth")
-        const { version } = await fetchLatestBaileysVersion()
-
-        const sock = makeWASocket({
-            version,
-            auth: state,
-            logger: Pino({ level: "silent" })
-        })
-
-        global.sock = sock
-        setupMenu(sock)
-        panel("Menunggu QR...", "Belum Login")
-
-        // CONNECTION EVENTS
-        sock.ev.on("connection.update", async (update) => {
-            const { qr, connection, lastDisconnect } = update
-
-            if (qr) {
-                global.lastQR = qr
-                panel("Scan QR!", "Belum Login")
-                qrcode.generate(qr, { small: true })
-            }
-
-            if (connection === "open") {
-                reconnecting = false
-                panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
-            }
-
-            if (connection === "close") {
-                const code = lastDisconnect?.error?.output?.statusCode
-
-                if (code === 401) {
-                    panel(red("Session Invalid! Menghapus auth..."), "Reset")
-                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-                    return restartBot()
-                }
-
-                if (!reconnecting) {
-                    reconnecting = true
-                    panel(red("Terputus, reconnect..."), "Reconnect")
-                    setTimeout(startBot, 2500)
-                }
-            }
-        })
-
-        sock.ev.on("creds.update", saveCreds)
-
-        // MESSAGE EVENT
-        sock.ev.on("messages.upsert", async ({ messages }) => {
-            const msg = messages[0]
-            if (!msg.message) return
-
-            if (!msg.key.fromMe) msgCount++
-
-            const from = msg.key.remoteJid
-            const text =
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text ||
-                ""
-
-            lastLog = `${from} → ${text}`
-            panel("Terhubung ✓", sock.user.id.split(":")[0])
-
-            if (text === "ping") {
-                let t = Date.now()
-                await sock.sendMessage(from, { text: "pong!" })
-                let ping = Date.now() - t
-                panel("Terhubung ✓", sock.user.id.split(":")[0], ping + " ms")
-            }
-        })
-
-        // ERROR HANDLER
-        process.on("uncaughtException", (err) => {
-            errCount++
-            lastLog = red("Error: " + err.message)
-            panel(red("Error!"), "Running")
-        })
-
-        process.on("unhandledRejection", (err) => {
-            errCount++
-            lastLog = red("Reject: " + err)
-            panel(red("Error!"), "Running")
-        })
-
-    } catch (e) {
-        console.log(red("Startup Error:"), e)
-        setTimeout(startBot, 2000)
-    }
-}
-
+// Menjalankan Bot
 startBot()
