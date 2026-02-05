@@ -111,22 +111,32 @@ function setupMenu(sock) {
                 break
 
             case "3":
-                if (isConnected) {
-                    console.log(red("\nBot sudah terhubung. Tidak bisa tautkan ulang.\n"))
-                } else {
-                    console.log(green("\nPilih metode:\n1) QR Code\n2) Pairing Code\n"))
-                    rl.question("> ", (ans) => {
-                        if (ans === "1") {
-                            if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
-                            else console.log(red("QR belum tersedia. Tunggu..."))
-                        } else if (ans === "2") {
-                            console.log(yellow("Pairing code akan muncul otomatis jika nomor support."))
-                        } else {
-                            console.log(red("Pilihan tidak valid."))
-                        }
-                    })
-                }
-                break
+    console.log(green("Pilih metode:"))
+    console.log("1) QR Code")
+    console.log("2) Pairing Code")
+    rl.question("> ", async (m) => {
+        if (m == "1") {
+            panel("Menunggu QR...", "QR Login")
+            if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
+        }
+
+        else if (m == "2") {
+            console.log(yellow("→ Membuat pairing code..."))
+
+            try {
+                // Jalankan pembuat pairing code!
+                const code = await sock.requestPairingCode()
+
+                console.log(green("\n► Pairing Code: " + code + "\n"))
+                console.log("Buka WhatsApp → Linked Devices → Masukkan kode ini\n")
+            } catch (e) {
+                console.log(red("Gagal membuat pairing code: " + e.message))
+            }
+        }
+
+        else console.log(yellow("Pilihan tidak dikenal"))
+    })
+    break
 
             case "4":
                 console.log(red("\n→ Bot dimatikan.\n"))
