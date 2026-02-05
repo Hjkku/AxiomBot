@@ -17,6 +17,10 @@ let lastCPU = 0
 let reconnecting = false
 global.sock = null
 
+// STATUS PANEL GLOBAL (FIX)
+global.currentStatus = "Menunggu..."
+global.currentDevice = "-"
+
 // CPU LIGHT
 let lastCPUTime = process.cpuUsage()
 setInterval(() => {
@@ -48,14 +52,14 @@ function red(t) { return `\x1b[31m${t}\x1b[0m` }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
 
 // ========== PANEL UI ==========
-function panel(status, device, ping = "-", showSource = false) {
+function panel(ping = "-", showSource = false) {
     console.clear()
     console.log(`
 ┌─────────────────────────────────────────────┐
 │          ${green("WHATSAPP BOT PANEL ULTRA")}        │
 ├─────────────────────────────────────────────┤
-│ Status : ${status}
-│ Device : ${device}
+│ Status : ${global.currentStatus}
+│ Device : ${global.currentDevice}
 │ Uptime : ${formatUptime(Date.now() - startTime)}
 │ CPU    : ${lastCPU} ms
 │ RAM    : ${getRam()}
@@ -99,7 +103,7 @@ function setupMenu(sock) {
                 restartBot()
                 break
             case "2":
-                panel("Terhubung ✓", sock?.user?.id?.split(":")[0] || "-", "-")
+                panel()
                 break
             case "3":
                 if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
@@ -110,12 +114,7 @@ function setupMenu(sock) {
                 process.exit(0)
                 break
             case "5":
-                panel(
-                    "Terhubung ✓",
-                    sock?.user?.id?.split(":")[0] || "-",
-                    "-",
-                    true
-                )
+                panel("-", true)
                 break
             default:
                 console.log(yellow("Perintah tidak dikenal."))
@@ -126,29 +125,13 @@ function setupMenu(sock) {
 // ========== ANTI CORRUPT HYBRID ==========
 function checkAuthIntegrity() {
     try {
-        if (!fs.existsSync("./auth")) {
-            console.log(red("→ AUTH folder tidak ada (scan baru)."))
-            return false
-        }
-
+        if (!fs.existsSync("./auth")) return true
         let files = fs.readdirSync("./auth")
-        if (files.length < 2) {
-            console.log(red("→ AUTH ERROR: file terlalu sedikit → reset"))
-            return true
-        }
+        if (files.length < 2) return true
+        if (!fs.existsSync("./auth/creds.json")) return true
 
-        let creds = "./auth/creds.json"
-        if (!fs.existsSync(creds)) {
-            console.log(red("→ AUTH ERROR: creds.json hilang → reset"))
-            return true
-        }
-
-        try {
-            JSON.parse(fs.readFileSync(creds, "utf8"))
-        } catch {
-            console.log(red("→ AUTH CORRUPT: creds.json rusak → reset"))
-            return true
-        }
+        try { JSON.parse(fs.readFileSync("./auth/creds.json", "utf8")) }
+        catch { return true }
 
         return false
     } catch {
@@ -164,6 +147,10 @@ function restartBot() {
     lastLog = "-"
     reconnecting = false
 
+    global.currentStatus = "Menunggu..."
+    global.currentDevice = "-"
+    panel()
+
     delete require.cache[require.resolve("./index.js")]
     process.removeAllListeners("uncaughtException")
     process.removeAllListeners("unhandledRejection")
@@ -174,10 +161,8 @@ function restartBot() {
 // ========== START BOT ==========
 async function startBot() {
     try {
-        // ANTI CORRUPT
         if (checkAuthIntegrity()) {
             try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-            console.log(red("→ Auth corrupt dihapus, scan ulang.\n"))
         }
 
         if (global.sock) {
@@ -196,49 +181,55 @@ async function startBot() {
 
         global.sock = sock
         setupMenu(sock)
-        panel("Menunggu QR...", "Belum Login")
+
+        global.currentStatus = "Menunggu QR..."
+        global.currentDevice = "-"
+        panel()
 
         // CONNECTION UPDATE
         sock.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
+            // QR
             if (qr) {
                 global.lastQR = qr
-                panel("Scan QR!", "Belum Login")
+                global.currentStatus = "Scan QR!"
+                global.currentDevice = "-"
+                panel()
                 qrcode.generate(qr, { small: true })
             }
 
+            // OPEN
             if (connection === "open") {
-                reconnecting = false
-
-                // 🔥 FIX device = s.whatsapp.net
                 let dev = sock.user.id.split(":")[0]
+
                 if (dev === "s.whatsapp.net") {
-                    console.log(red("→ DETEKSI SESSION RUSAK (device = s.whatsapp.net)"))
-                    console.log(red("→ Menghapus auth & restart"))
-
+                    console.log(red("→ DETEKSI SESSION RUSAK → Reset"))
                     try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-
                     return restartBot()
                 }
 
-                panel(green("Terhubung ✓"), dev)
+                global.currentStatus = green("Terhubung ✓")
+                global.currentDevice = dev
+                panel()
             }
 
+            // CLOSE
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
 
+                global.currentStatus = red("Terputus, reconnect...")
+                global.currentDevice = "-"
+                panel()
+
                 if (code === 401) {
-                    panel(red("Session Invalid! Menghapus auth..."), "Reset")
                     try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-                    console.log(red("\n→ Session dihapus. Scan QR lagi.\n"))
                     return restartBot()
                 }
 
                 if (!reconnecting) {
                     reconnecting = true
-                    panel(red("Terputus, reconnect..."), "Reconnect")
-                    setTimeout(() => startBot(), 2500)
+                    setTimeout(startBot, 2500)
                 }
             }
         })
@@ -258,13 +249,13 @@ async function startBot() {
                 ""
 
             lastLog = `${from} → ${text}`
-            panel("Terhubung ✓", sock.user.id.split(":")[0])
+            panel()
 
             if (text === "ping") {
                 let t = Date.now()
                 await sock.sendMessage(from, { text: "pong!" })
                 let ping = Date.now() - t
-                panel("Terhubung ✓", sock.user.id.split(":")[0], ping + " ms")
+                panel(ping + " ms")
             }
         })
 
@@ -272,13 +263,13 @@ async function startBot() {
         process.on("uncaughtException", (err) => {
             errCount++
             lastLog = red("Error: " + err.message)
-            panel(red("Error!"), "Running")
+            panel()
         })
 
         process.on("unhandledRejection", (err) => {
             errCount++
             lastLog = red("Reject: " + err)
-            panel(red("Error!"), "Running")
+            panel()
         })
 
     } catch (e) {
