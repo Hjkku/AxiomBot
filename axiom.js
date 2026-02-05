@@ -20,52 +20,20 @@ global.sock = null
 // STATUS PANEL GLOBAL
 global.currentStatus = "Menunggu..."
 global.currentDevice = "-"
+global.lastQR = null
+global.showQR = false  // flag untuk menampilkan QR
 
 // CPU LIGHT
 let lastCPUTime = process.cpuUsage()
 setInterval(() => {
     const now = process.cpuUsage()
-    lastCPU = ((now.user - lastCPUTime.user) + (now.system - lastCPUTime.system)) / 1000
+    lastCPU = (
+        now.user - lastCPUTime.user +
+        now.system - lastCPUTime.system
+    ) / 1000
     lastCPU = lastCPU.toFixed(1)
     lastCPUTime = now
 }, 1000)
-
-// ========== PANEL UI ==========
-function panel(ping = "-", showSource = false) {
-    console.clear()
-    console.log(`
-┌─────────────────────────────────────────────┐
-│          \x1b[32mWHATSAPP BOT PANEL ULTRA\x1b[0m        │
-├─────────────────────────────────────────────┤
-│ Status : ${global.currentStatus}
-│ Device : ${global.currentDevice}
-│ Uptime : ${formatUptime(Date.now() - startTime)}
-│ CPU    : ${lastCPU} ms
-│ RAM    : ${getRam()}
-│ Ping   : ${ping}
-│ Msg In : ${msgCount}
-│ Errors : ${errCount}
-├─────────────────────────────────────────────┤
-│ Menu Interaktif:
-│ 1) Restart Bot
-│ 2) Refresh Panel
-│ 3) Pairing / Tampilkan QR
-│ 4) Keluar Bot
-│ 5) About / Source Code
-├─────────────────────────────────────────────┤
-│ Log Terakhir:
-│ ${yellow(lastLog)}
-${showSource ? `
-├─────────────────────────────────────────────┤
-│ \x1b[32mSource & Credits\x1b[0m
-│ Author       : Rangga
-│ Script Writer: ChatGPT
-│ Designer     : Rangga & ChatGPT
-│ Versi Bot    : Ultra Low RAM v3.1
-` : ""}
-└─────────────────────────────────────────────┘
-`)
-}
 
 // ========== HELPER ==========
 function formatUptime(ms) {
@@ -81,9 +49,53 @@ function getRam() {
     return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
 }
 
-function green(t){ return `\x1b[32m${t}\x1b[0m` }
-function red(t){ return `\x1b[31m${t}\x1b[0m` }
-function yellow(t){ return `\x1b[33m${t}\x1b[0m` }
+function green(t) { return `\x1b[32m${t}\x1b[0m` }
+function red(t) { return `\x1b[31m${t}\x1b[0m` }
+function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
+
+// ========== PANEL UI ==========
+function panel(ping = "-", showSource = false) {
+    console.clear()
+    console.log(`
+┌─────────────────────────────────────────────┐
+│          ${green("WHATSAPP BOT PANEL ULTRA")}        │
+├─────────────────────────────────────────────┤
+│ Status : ${global.currentStatus}
+│ Device : ${global.currentDevice}
+│ Uptime : ${formatUptime(Date.now() - startTime)}
+│ CPU    : ${lastCPU} ms
+│ RAM    : ${getRam()}
+│ Ping   : ${ping}
+│ Msg In : ${msgCount}
+│ Errors : ${errCount}
+├─────────────────────────────────────────────┤
+│ Menu Interaktif:
+│ 1) Restart Bot
+│ 2) Refresh Panel
+│ 3) QR / Pairing
+│ 4) Keluar Bot
+│ 5) About / Source Code
+├─────────────────────────────────────────────┤
+│ Log Terakhir:
+│ ${yellow(lastLog)}
+${showSource ? `
+├─────────────────────────────────────────────┤
+│ ${green("Source & Credits")}
+│ Author       : Rangga
+│ Script Writer: ChatGPT
+│ Designer     : Rangga & ChatGPT
+│ Versi Bot    : Ultra Low RAM v3.1
+` : ""}
+└─────────────────────────────────────────────┘
+`)
+
+    // Tampilkan QR jika flag true
+    if(global.showQR && global.lastQR){
+        console.log(green("\n→ Scan QR Berikut dengan WhatsApp:"))
+        qrcode.generate(global.lastQR, { small: true })
+        console.log("\n")
+    }
+}
 
 // ========== MENU TERMINAL ==========
 const rl = readline.createInterface({
@@ -94,7 +106,7 @@ const rl = readline.createInterface({
 function setupMenu(sock) {
     rl.removeAllListeners("line")
     rl.on("line", async (input) => {
-        switch(input.trim()){
+        switch (input.trim()) {
             case "1":
                 console.log(red("\n→ Restarting bot...\n"))
                 restartBot()
@@ -103,8 +115,8 @@ function setupMenu(sock) {
                 panel()
                 break
             case "3":
-                // Pairing / Tampilkan QR
-                global.pairingRequested = true
+                // QR / Pairing
+                global.showQR = true
                 console.log(green("→ Siapkan HP: Buka WhatsApp → Perangkat Tertaut → + Tautkan Perangkat"))
                 panel()
                 break
@@ -131,18 +143,22 @@ function checkAuthIntegrity() {
         try { JSON.parse(fs.readFileSync("./auth/creds.json", "utf8")) }
         catch { return true }
         return false
-    } catch { return true }
+    } catch {
+        return true
+    }
 }
 
 // ========== RESTART ==========
-function restartBot(){
+function restartBot() {
     startTime = Date.now()
     msgCount = 0
     errCount = 0
     lastLog = "-"
     reconnecting = false
+
     global.currentStatus = "Menunggu..."
     global.currentDevice = "-"
+    global.showQR = false
     panel()
 
     delete require.cache[require.resolve("./index.js")]
@@ -155,13 +171,13 @@ function restartBot(){
 // ========== START BOT ==========
 async function startBot() {
     try {
-        if(checkAuthIntegrity()){
-            try{ fs.rmSync("./auth",{recursive:true,force:true}) } catch{}
+        if (checkAuthIntegrity()) {
+            try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
         }
 
-        if(global.sock){
-            try{ global.sock.end?.() }catch{}
-            try{ global.sock.ws?.close?.() }catch{}
+        if (global.sock) {
+            try { global.sock.end?.() } catch {}
+            try { global.sock.ws?.close?.() } catch {}
         }
 
         const { state, saveCreds } = await useMultiFileAuthState("./auth")
@@ -170,7 +186,7 @@ async function startBot() {
         const sock = makeWASocket({
             version,
             auth: state,
-            logger: Pino({level:"silent"})
+            logger: Pino({ level: "silent" })
         })
 
         global.sock = sock
@@ -178,48 +194,43 @@ async function startBot() {
 
         global.currentStatus = "Menunggu QR..."
         global.currentDevice = "-"
+        global.showQR = false
         panel()
 
         // CONNECTION UPDATE
         sock.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
-            // QR hanya tampil jika pairing diminta
-            if(qr && global.pairingRequested){
+            if(qr){
                 global.lastQR = qr
-                global.currentStatus = "Scan QR!"
-                global.currentDevice = "-"
-                panel()
-                qrcode.generate(qr,{small:true})
-                global.pairingRequested = false
+                if(global.showQR){ panel() }
             }
 
-            // OPEN
             if(connection === "open"){
                 let dev = sock.user.id.split(":")[0]
                 if(dev === "s.whatsapp.net"){
                     console.log(red("→ DETEKSI SESSION RUSAK → Reset"))
-                    try{ fs.rmSync("./auth",{recursive:true,force:true}) }catch{}
+                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
                     return restartBot()
                 }
                 global.currentStatus = green("Terhubung ✓")
                 global.currentDevice = dev
+                global.showQR = false
                 panel()
             }
 
-            // CLOSE
             if(connection === "close"){
                 const code = lastDisconnect?.error?.output?.statusCode
                 global.currentStatus = red("Terputus, reconnect...")
                 global.currentDevice = "-"
                 panel()
-                if(code===401){
-                    try{ fs.rmSync("./auth",{recursive:true,force:true}) }catch{}
+                if(code === 401){
+                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
                     return restartBot()
                 }
                 if(!reconnecting){
-                    reconnecting=true
-                    setTimeout(startBot,2500)
+                    reconnecting = true
+                    setTimeout(startBot, 2500)
                 }
             }
         })
@@ -227,37 +238,40 @@ async function startBot() {
         sock.ev.on("creds.update", saveCreds)
 
         // PESAN MASUK
-        sock.ev.on("messages.upsert", async ({messages})=>{
+        sock.ev.on("messages.upsert", async ({ messages }) => {
             let msg = messages[0]
             if(!msg.message) return
             if(!msg.key.fromMe) msgCount++
             let from = msg.key.remoteJid
-            let text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
+            let text =
+                msg.message.conversation ||
+                msg.message.extendedTextMessage?.text ||
+                ""
             lastLog = `${from} → ${text}`
             panel()
-            if(text==="ping"){
-                let t=Date.now()
-                await sock.sendMessage(from,{text:"pong!"})
-                let ping = Date.now()-t
+            if(text === "ping"){
+                let t = Date.now()
+                await sock.sendMessage(from, { text: "pong!" })
+                let ping = Date.now() - t
                 panel(ping + " ms")
             }
         })
 
         // ANTI CRASH
-        process.on("uncaughtException",(err)=>{
+        process.on("uncaughtException", (err) => {
             errCount++
-            lastLog = red("Error: "+err.message)
+            lastLog = red("Error: " + err.message)
             panel()
         })
-        process.on("unhandledRejection",(err)=>{
+        process.on("unhandledRejection", (err) => {
             errCount++
-            lastLog = red("Reject: "+err)
+            lastLog = red("Reject: " + err)
             panel()
         })
 
-    }catch(e){
-        console.log(red("Startup Error:"),e)
-        setTimeout(startBot,2000)
+    } catch(e){
+        console.log(red("Startup Error:"), e)
+        setTimeout(startBot, 2000)
     }
 }
 
