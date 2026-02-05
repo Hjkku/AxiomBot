@@ -17,7 +17,7 @@ let lastCPU = 0
 let reconnecting = false
 global.sock = null
 
-// STATUS PANEL GLOBAL (FIX)
+// STATUS PANEL GLOBAL
 global.currentStatus = "Menunggu..."
 global.currentDevice = "-"
 
@@ -25,7 +25,11 @@ global.currentDevice = "-"
 let lastCPUTime = process.cpuUsage()
 setInterval(() => {
     const now = process.cpuUsage()
-    lastCPU = ((now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000).toFixed(1)
+    lastCPU = (
+        now.user - lastCPUTime.user +
+        now.system - lastCPUTime.system
+    ) / 1000
+    lastCPU = lastCPU.toFixed(1)
     lastCPUTime = now
 }, 1000)
 
@@ -66,9 +70,10 @@ function panel(ping = "-", showSource = false) {
 │ Menu Interaktif:
 │ 1) Restart Bot
 │ 2) Refresh Panel
-│ 3) QR / Pairing
-│ 4) Keluar Bot
-│ 5) About / Source Code
+│ 3) Tampilkan QR Lagi
+│ 4) Pairing Nomor HP
+│ 5) Keluar Bot
+│ 6) About / Source Code
 ├─────────────────────────────────────────────┤
 │ Log Terakhir:
 │ ${yellow(lastLog)}
@@ -102,38 +107,34 @@ function setupMenu(sock) {
                 panel()
                 break
             case "3":
-                rl.question(yellow("→ Pilih: 1) QR  2) Pairing : "), async (opt) => {
-                    if(opt.trim() === "1"){
-                        global.currentStatus = "Scan QR!"
-                        global.currentDevice = "-"
+                if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
+                else console.log(red("Tidak ada QR."))
+                break
+            case "4":
+                rl.question("Masukkan nomor HP (contoh 6281234567890): ", async (num) => {
+                    if (!num) return console.log(red("Nomor tidak valid"))
+                    if (!global.sock) return console.log(red("Bot belum siap"))
+
+                    global.currentStatus = `Menunggu kode pairing dari ${num}...`
+                    panel()
+
+                    try {
+                        const pairingCode = await global.sock.requestPairingCode(num)
+                        console.log(green(`→ Pairing code: ${pairingCode}`))
+                        global.currentStatus = `Kode pairing diterima. Menunggu koneksi...`
                         panel()
-                        if(global.lastQR) qrcode.generate(global.lastQR, { small: true })
-                        else console.log(red("→ Tidak ada QR tersedia."))
-                    } else if(opt.trim() === "2"){
-                        rl.question(yellow("→ Masukkan nomor (contoh: 6281234567890): "), async (number) => {
-                            global.currentStatus = `Pairing dengan ${number}...`
-                            global.currentDevice = "-"
-                            panel()
-                            try {
-                                const codeData = await sock.requestPairingCode(number)
-                                console.log(green("→ Pairing code:"), codeData)
-                                console.log(yellow("→ Scan QR dari HP target untuk menyelesaikan pairing"))
-                            } catch(e) {
-                                console.log(red("→ Gagal generate pairing code:"), e.message)
-                                global.currentStatus = red("Pairing gagal")
-                                panel()
-                            }
-                        })
-                    } else {
-                        console.log(red("→ Opsi tidak dikenal"))
+                    } catch (e) {
+                        console.log(red("→ Pairing gagal: " + e.message))
+                        global.currentStatus = "Pairing gagal"
+                        panel()
                     }
                 })
                 break
-            case "4":
+            case "5":
                 console.log(red("→ Keluar bot"))
                 process.exit(0)
                 break
-            case "5":
+            case "6":
                 panel("-", true)
                 break
             default:
@@ -149,8 +150,10 @@ function checkAuthIntegrity() {
         let files = fs.readdirSync("./auth")
         if (files.length < 2) return true
         if (!fs.existsSync("./auth/creds.json")) return true
+
         try { JSON.parse(fs.readFileSync("./auth/creds.json", "utf8")) }
         catch { return true }
+
         return false
     } catch {
         return true
@@ -167,11 +170,9 @@ function restartBot() {
     global.currentStatus = "Menunggu..."
     global.currentDevice = "-"
     panel()
-
     delete require.cache[require.resolve("./index.js")]
     process.removeAllListeners("uncaughtException")
     process.removeAllListeners("unhandledRejection")
-
     startBot()
 }
 
@@ -180,6 +181,8 @@ async function startBot() {
     try {
         if (checkAuthIntegrity()) {
             try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
+            global.currentStatus = "Auth corrupt, hapus & scan ulang"
+            panel()
         }
 
         if (global.sock) {
@@ -203,11 +206,10 @@ async function startBot() {
         global.currentDevice = "-"
         panel()
 
-        // ========== CONNECTION UPDATE ==========
+        // CONNECTION UPDATE
         sock.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
-            // QR
             if (qr) {
                 global.lastQR = qr
                 global.currentStatus = "Scan QR!"
@@ -216,34 +218,27 @@ async function startBot() {
                 qrcode.generate(qr, { small: true })
             }
 
-            // OPEN
             if (connection === "open") {
                 let dev = sock.user.id.split(":")[0]
-
                 if (dev === "s.whatsapp.net") {
                     console.log(red("→ DETEKSI SESSION RUSAK → Reset"))
                     try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
                     return restartBot()
                 }
-
                 global.currentStatus = green("Terhubung ✓")
                 global.currentDevice = dev
                 panel()
             }
 
-            // CLOSE
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
-
                 global.currentStatus = red("Terputus, reconnect...")
                 global.currentDevice = "-"
                 panel()
-
                 if (code === 401) {
                     try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
                     return restartBot()
                 }
-
                 if (!reconnecting) {
                     reconnecting = true
                     setTimeout(startBot, 2500)
@@ -258,16 +253,13 @@ async function startBot() {
             let msg = messages[0]
             if (!msg.message) return
             if (!msg.key.fromMe) msgCount++
-
             let from = msg.key.remoteJid
             let text =
                 msg.message.conversation ||
                 msg.message.extendedTextMessage?.text ||
                 ""
-
             lastLog = `${from} → ${text}`
             panel()
-
             if (text === "ping") {
                 let t = Date.now()
                 await sock.sendMessage(from, { text: "pong!" })
