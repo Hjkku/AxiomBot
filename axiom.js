@@ -15,7 +15,7 @@ let state = {
     startTime: Date.now(),
     msgCount: 0,
     errCount: 0,
-    lastLog: "Sistem Siap",
+    lastLog: "Memulai sistem...",
     lastCPU: "0",
     ping: "-",
     reconnecting: false,
@@ -38,7 +38,6 @@ const formatUptime = (ms) => {
     let s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60)
     return `${h}h ${m % 60}m ${s % 60}s`
 }
-
 const getRam = () => (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
 const color = {
     green: (t) => `\x1b[32m${t}\x1b[0m`,
@@ -49,7 +48,7 @@ const color = {
 
 // --- UI PANEL ---
 function refreshPanel(status = "Terhubung ✓", showSource = false) {
-    console.clear()
+    console.clear() // Hapus layar agar bersih
     const device = state.sock?.user?.id ? state.sock.user.id.split(":")[0] : "Belum Login"
     
     console.log(`
@@ -84,100 +83,116 @@ ${showSource ? `├────────────────────�
 // --- TERMINAL INTERFACE ---
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 rl.on("line", (input) => {
-    switch (input.trim()) {
-        case "1": restartBot(); break
-        case "2": refreshPanel(); break
-        case "3": 
-            if (state.lastQR) qrcode.generate(state.lastQR, { small: true })
-            else console.log(color.red("QR tidak tersedia atau sudah login."))
-            break
-        case "4": process.exit(0); break
-        case "5": refreshPanel("Info Sistem", true); break
+    const cmd = input.trim()
+    if (cmd === "1") restartBot()
+    else if (cmd === "2") refreshPanel()
+    else if (cmd === "3") {
+        if (state.lastQR) qrcode.generate(state.lastQR, { small: true })
+        else console.log(color.red("QR tidak tersedia."))
     }
+    else if (cmd === "4") process.exit(0)
+    else if (cmd === "5") refreshPanel("Info Sistem", true)
 })
 
 // --- CORE FUNCTION ---
 async function startBot() {
-    const { state: authState, saveCreds } = await useMultiFileAuthState("./auth")
-    const { version } = await fetchLatestBaileysVersion()
-
-    const sock = makeWASocket({
-        version,
-        auth: authState,
-        logger: Pino({ level: "silent" }),
-        printQRInTerminal: false // Kita handle manual via panel
-    })
-
-    state.sock = sock
-
-    sock.ev.on("connection.update", async (update) => {
-        const { qr, connection, lastDisconnect } = update
-
-        if (qr) {
-            state.lastQR = qr
-            refreshPanel(color.yellow("Menunggu Scan..."))
-            qrcode.generate(qr, { small: true })
-        }
-
-        if (connection === "open") {
-            state.lastQR = null
-            state.reconnecting = false
-            state.lastLog = "Bot Berhasil Terhubung"
-            refreshPanel(color.green("Terhubung ✓"))
-        }
-
-        if (connection === "close") {
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
-            state.lastQR = null
-            
-            if (reason === DisconnectReason.loggedOut) {
-                state.lastLog = "Session Logout, menghapus data..."
-                fs.rmSync("./auth", { recursive: true, force: true })
-                restartBot()
-            } else {
-                state.lastLog = "Koneksi terputus, mencoba kembali..."
-                setTimeout(startBot, 3000)
-            }
-        }
-    })
-
-    sock.ev.on("creds.update", saveCreds)
-
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
-        if (type !== "notify") return
-        const msg = messages[0]
-        if (!msg.message || msg.key.fromMe) return
-
-        state.msgCount++
-        const from = msg.key.remoteJid
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
+    // 1. Tampilkan indikator loading dulu supaya tidak hitam kosong
+    console.log(color.cyan("\n[!] Menghubungkan ke WhatsApp Server..."))
+    
+    try {
+        // 2. Load Auth
+        const { state: authState, saveCreds } = await useMultiFileAuthState("./auth")
         
-        state.lastLog = `${from.split("@")[0]} : ${text.substring(0, 20)}`
-        refreshPanel()
-
-        if (text.toLowerCase() === "ping") {
-            const start = Date.now()
-            await sock.sendMessage(from, { text: "Pong! 🏓" })
-            state.ping = (Date.now() - start) + "ms"
-            refreshPanel()
+        // 3. Ambil Versi (dengan fallback jika internet lambat)
+        let version;
+        try {
+            const v = await fetchLatestBaileysVersion()
+            version = v.version
+        } catch {
+            version = [2, 3000, 1015901307] // Versi fallback jika gagal fetch
         }
-    })
+
+        const sock = makeWASocket({
+            version,
+            auth: authState,
+            logger: Pino({ level: "silent" }),
+            printQRInTerminal: false,
+            browser: ["Bot Ultra", "Chrome", "1.0.0"]
+        })
+
+        state.sock = sock
+
+        sock.ev.on("connection.update", async (update) => {
+            const { qr, connection, lastDisconnect } = update
+
+            if (qr) {
+                state.lastQR = qr
+                refreshPanel(color.yellow("Menunggu Scan..."))
+                qrcode.generate(qr, { small: true })
+            }
+
+            if (connection === "open") {
+                state.lastQR = null
+                state.reconnecting = false
+                state.lastLog = "Bot Berhasil Terhubung"
+                refreshPanel(color.green("Terhubung ✓"))
+            }
+
+            if (connection === "close") {
+                const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
+                if (reason === DisconnectReason.loggedOut) {
+                    state.lastLog = "Session Logout, menghapus folder auth..."
+                    fs.rmSync("./auth", { recursive: true, force: true })
+                    startBot()
+                } else {
+                    state.lastLog = "Koneksi terputus, mencoba lagi..."
+                    setTimeout(startBot, 3000)
+                }
+            }
+        })
+
+        sock.ev.on("creds.update", saveCreds)
+
+        sock.ev.on("messages.upsert", async ({ messages, type }) => {
+            if (type !== "notify") return
+            const msg = messages[0]
+            if (!msg.message || msg.key.fromMe) return
+
+            state.msgCount++
+            const from = msg.key.remoteJid
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ""
+            
+            state.lastLog = `${from.split("@")[0]} : ${text.substring(0, 20)}`
+            refreshPanel()
+
+            if (text.toLowerCase() === "ping") {
+                const start = Date.now()
+                await sock.sendMessage(from, { text: "Pong! 🏓" })
+                state.ping = (Date.now() - start) + "ms"
+                refreshPanel()
+            }
+        })
+
+    } catch (err) {
+        state.errCount++
+        console.error(color.red("Fatal Startup Error:"), err)
+        setTimeout(startBot, 5000)
+    }
 }
 
 function restartBot() {
     state.startTime = Date.now()
     state.msgCount = 0
-    state.errCount = 0
     if (state.sock) state.sock.end()
     startBot()
 }
 
-// --- ANTI CRASH ---
+// Anti-crash global
 process.on("uncaughtException", (err) => {
     state.errCount++
     state.lastLog = `Error: ${err.message}`
-    refreshPanel(color.red("Critical Error!"))
+    refreshPanel(color.red("Terjadi Error!"))
 })
 
-// Menjalankan Bot
+// Jalankan bot
 startBot()
