@@ -8,7 +8,7 @@ const Pino = require("pino")
 const readline = require("readline")
 const fs = require("fs")
 
-// GLOBAL STATE
+// ========== GLOBAL STATE ==========
 let startTime = Date.now()
 let msgCount = 0
 let errCount = 0
@@ -17,15 +17,19 @@ let lastCPU = 0
 let reconnecting = false
 global.sock = null
 
-// CPU USAGE LIGHT
+// CPU LIGHT
 let lastCPUTime = process.cpuUsage()
 setInterval(() => {
     const now = process.cpuUsage()
-    lastCPU = ((now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000).toFixed(1)
+    lastCPU = (
+        now.user - lastCPUTime.user +
+        now.system - lastCPUTime.system
+    ) / 1000
+    lastCPU = lastCPU.toFixed(1)
     lastCPUTime = now
 }, 1000)
 
-// HELPERS
+// ========== HELPER ==========
 function formatUptime(ms) {
     let s = Math.floor(ms / 1000)
     let m = Math.floor(s / 60)
@@ -43,7 +47,7 @@ function green(t) { return `\x1b[32m${t}\x1b[0m` }
 function red(t) { return `\x1b[31m${t}\x1b[0m` }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
 
-// PANEL
+// ========== PANEL UI ==========
 function panel(status, device, ping = "-", showSource = false) {
     console.clear()
     console.log(`
@@ -61,10 +65,10 @@ function panel(status, device, ping = "-", showSource = false) {
 ├─────────────────────────────────────────────┤
 │ Menu Interaktif:
 │ 1) Restart Bot
-│ 2) Refresh/Clear Panel
+│ 2) Refresh Panel
 │ 3) Tampilkan QR Lagi
-│ 4) Keluar/Log out
-│ 5) About / Source
+│ 4) Keluar Bot
+│ 5) About / Source Code
 ├─────────────────────────────────────────────┤
 │ Log Terakhir:
 │ ${yellow(lastLog)}
@@ -74,13 +78,13 @@ ${showSource ? `
 │ Author       : Rangga
 │ Script Writer: ChatGPT
 │ Designer     : Rangga & ChatGPT
-│ Versi Bot    : Ultra Low RAM v2.0
+│ Versi Bot    : Ultra Low RAM v3.0
 ` : ""}
 └─────────────────────────────────────────────┘
 `)
 }
 
-// TERMINAL MENU
+// ========== MENU TERMINAL ==========
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -110,7 +114,7 @@ function setupMenu(sock) {
                     "Terhubung ✓",
                     sock?.user?.id?.split(":")[0] || "-",
                     "-",
-                    true // showSource = true
+                    true
                 )
                 break
             default:
@@ -119,7 +123,40 @@ function setupMenu(sock) {
     })
 }
 
-// INTERNAL RESTART SAFE
+// ========== ANTI CORRUPT HYBRID ==========
+function checkAuthIntegrity() {
+    try {
+        if (!fs.existsSync("./auth")) {
+            console.log(red("→ AUTH folder tidak ada (scan baru)."))
+            return false
+        }
+
+        let files = fs.readdirSync("./auth")
+        if (files.length < 2) {
+            console.log(red("→ AUTH ERROR: file terlalu sedikit → reset"))
+            return true
+        }
+
+        let creds = "./auth/creds.json"
+        if (!fs.existsSync(creds)) {
+            console.log(red("→ AUTH ERROR: creds.json hilang → reset"))
+            return true
+        }
+
+        try {
+            JSON.parse(fs.readFileSync(creds, "utf8"))
+        } catch {
+            console.log(red("→ AUTH CORRUPT: creds.json rusak → reset"))
+            return true
+        }
+
+        return false
+    } catch {
+        return true
+    }
+}
+
+// ========== RESTART ==========
 function restartBot() {
     startTime = Date.now()
     msgCount = 0
@@ -128,16 +165,21 @@ function restartBot() {
     reconnecting = false
 
     delete require.cache[require.resolve("./index.js")]
-
     process.removeAllListeners("uncaughtException")
     process.removeAllListeners("unhandledRejection")
 
     startBot()
 }
 
-// START BOT
+// ========== START BOT ==========
 async function startBot() {
     try {
+        // ANTI CORRUPT
+        if (checkAuthIntegrity()) {
+            try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
+            console.log(red("→ Auth corrupt dihapus, scan ulang.\n"))
+        }
+
         if (global.sock) {
             try { global.sock.end?.() } catch {}
             try { global.sock.ws?.close?.() } catch {}
@@ -156,7 +198,7 @@ async function startBot() {
         setupMenu(sock)
         panel("Menunggu QR...", "Belum Login")
 
-        // CONNECTION EVENTS
+        // CONNECTION UPDATE
         sock.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
@@ -168,13 +210,24 @@ async function startBot() {
 
             if (connection === "open") {
                 reconnecting = false
-                panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
+
+                // 🔥 FIX device = s.whatsapp.net
+                let dev = sock.user.id.split(":")[0]
+                if (dev === "s.whatsapp.net") {
+                    console.log(red("→ DETEKSI SESSION RUSAK (device = s.whatsapp.net)"))
+                    console.log(red("→ Menghapus auth & restart"))
+
+                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
+
+                    return restartBot()
+                }
+
+                panel(green("Terhubung ✓"), dev)
             }
 
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
 
-                // FIX WA BUSINESS LOGOUT
                 if (code === 401) {
                     panel(red("Session Invalid! Menghapus auth..."), "Reset")
                     try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
@@ -194,14 +247,12 @@ async function startBot() {
 
         // PESAN MASUK
         sock.ev.on("messages.upsert", async ({ messages }) => {
-            const msg = messages[0]
+            let msg = messages[0]
             if (!msg.message) return
-
-            // Hanya pesan masuk
             if (!msg.key.fromMe) msgCount++
 
-            const from = msg.key.remoteJid
-            const text =
+            let from = msg.key.remoteJid
+            let text =
                 msg.message.conversation ||
                 msg.message.extendedTextMessage?.text ||
                 ""
@@ -217,7 +268,7 @@ async function startBot() {
             }
         })
 
-        // ANTI-CRASH
+        // ANTI CRASH
         process.on("uncaughtException", (err) => {
             errCount++
             lastLog = red("Error: " + err.message)
