@@ -1,138 +1,288 @@
 const {
     default: makeWASocket,
-    DisconnectReason,
     useMultiFileAuthState,
     fetchLatestBaileysVersion
-} = require("@whiskeysockets/baileys");
-const readline = require("readline");
-const { Boom } = require("@hapi/boom");
+} = require("@whiskeysockets/baileys")
+const qrcode = require("qrcode-terminal")
+const Pino = require("pino")
+const readline = require("readline")
+const fs = require("fs")
 
+// GLOBAL STATE
+let startTime = Date.now()
+let msgCount = 0
+let errCount = 0
+let lastLog = "-"
+let lastCPU = 0
+let reconnecting = false
+global.sock = null
+let loggedIn = false
+
+// CPU USAGE
+let lastCPUTime = process.cpuUsage()
+setInterval(() => {
+    const now = process.cpuUsage()
+    lastCPU = (
+        (now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000
+    ).toFixed(1)
+    lastCPUTime = now
+}, 1000)
+
+// HELPERS
+function formatUptime(ms) {
+    let s = Math.floor(ms / 1000)
+    let m = Math.floor(s / 60)
+    let h = Math.floor(m / 60)
+    s %= 60
+    m %= 60
+    return `${h}h ${m}m ${s}s`
+}
+
+function getRam() {
+    return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
+}
+
+function green(t) { return `\x1b[32m${t}\x1b[0m` }
+function red(t) { return `\x1b[31m${t}\x1b[0m` }
+function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
+
+// PANEL
+function panel(status, device, ping = "-", showSource = false) {
+    console.clear()
+    console.log(`
+┌──────────────────────────────────────────────┐
+│          ${green("WHATSAPP BOT PANEL ULTRA")}           │
+├──────────────────────────────────────────────┤
+│ Status : ${status}
+│ Device : ${device}
+│ Uptime : ${formatUptime(Date.now() - startTime)}
+│ CPU    : ${lastCPU} ms
+│ RAM    : ${getRam()}
+│ Ping   : ${ping}
+│ Msg In : ${msgCount}
+│ Errors : ${errCount}
+├──────────────────────────────────────────────┤
+│ Menu Interaktif:
+│ 1) Restart Bot
+│ 2) Refresh Panel
+│ 3) Tautkan Perangkat
+│ 4) Matikan Bot
+│ 5) Logout WhatsApp
+│ 6) Source
+├──────────────────────────────────────────────┤
+│ Log Terakhir:
+│ ${yellow(lastLog)}
+${showSource ? `
+├──────────────────────────────────────────────┤
+│ ${green("Source & Credits")}
+│ Author       : Rangga
+│ Script Writer: ChatGPT
+│ Designer     : Rangga & ChatGPT
+│ Versi Bot    : Ultra Low RAM v3.0
+` : ""}
+└──────────────────────────────────────────────┘
+`)
+}
+
+// TERMINAL INPUT
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
-});
+})
 
 function ask(q) {
-    return new Promise(res => rl.question(q, res));
+    return new Promise(resolve => rl.question(q, resolve))
 }
 
-let isPairing = false;
+function setupMenu(sock) {
+    rl.removeAllListeners("line")
+    rl.on("line", async (input) => {
 
-async function start() {
-    const { state, saveCreds } = await useMultiFileAuthState("./session");
-    const { version } = await fetchLatestBaileysVersion();
+        switch (input.trim()) {
+            case "1":
+                console.log(red("\n→ Restarting bot...\n"))
+                restartBot()
+                break
 
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        syncFullHistory: false,
-        markOnlineOnConnect: false,
-    });
+            case "2":
+                panel(
+                    loggedIn ? green("Terhubung ✓") : red("Tidak Terhubung"),
+                    loggedIn ? sock?.user?.id?.split(":")[0] : "-",
+                    "-"
+                )
+                break
 
-    sock.ev.on("creds.update", saveCreds);
+            case "3":
+                await menuTautkan(sock)
+                break
 
-    sock.ev.on("connection.update", async (update) => {
-        const { connection, lastDisconnect, qr, pairingCode } = update;
+            case "4":
+                console.log(red("→ Mematikan bot..."))
+                process.exit(0)
+                break
 
-        if (qr && !isPairing) {
-            console.clear();
-            console.log("\n=== SCAN QR ===\n");
-            console.log(qr);
+            case "5":
+                console.log(red("→ Logout WhatsApp, menghapus session..."))
+                try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
+                console.log(green("→ Session dihapus. Silakan tautkan ulang."))
+                restartBot()
+                break
+
+            case "6":
+                panel(
+                    loggedIn ? green("Terhubung ✓") : red("Tidak Terhubung"),
+                    loggedIn ? sock?.user?.id?.split(":")[0] : "-",
+                    "-",
+                    true
+                )
+                break
+
+            default:
+                console.log(yellow("Perintah tidak dikenal."))
         }
-
-        if (pairingCode) {
-            console.clear();
-            console.log("\n=== PAIRING CODE ===\n");
-            console.log(pairingCode);
-        }
-
-        if (connection === "open" && !isPairing) {
-            console.clear();
-            console.log("Bot berhasil terhubung.\n");
-        }
-
-        if (connection === "close") {
-            let reason = new Boom(lastDisconnect?.error)?.output.statusCode;
-            if (reason !== DisconnectReason.loggedOut) {
-                start();
-            } else {
-                console.log("Session logout.");
-            }
-        }
-    });
-
-    menu(sock);
+    })
 }
 
-async function menu(sock) {
-    while (true) {
-        console.log("\n=== PANEL BOT ===");
-        console.log("[1] Scan QR");
-        console.log("[2] Pairing Code (Gabungan Manual + Otomatis)");
-        console.log("[3] Check Device");
-        console.log("[4] Matikan Bot");
-        console.log("[5] Putuskan Sesi (Logout Auth)");
-        console.log("[6] Source Code");
-        const choose = await ask("Pilih: ");
 
-        if (choose == "1") {
-            isPairing = false;
-            console.clear();
-            console.log("Tampilkan QR...");
-        }
+// =============== MENU TAUTKAN PERANGKAT ==================
+async function menuTautkan(sock) {
 
-        if (choose == "2") {
-            isPairing = true;
-            console.clear();
-            let number = await ask("Masukkan nomor (tanpa +62): ");
-            number = number.replace(/\D/g, "");
-            number = "+62" + number;
+    if (loggedIn) {
+        console.log(red("\n→ Sudah terhubung, tidak bisa tautkan ulang.\n"))
+        return
+    }
 
-            try {
-                console.log("Cek support pairing...");
-                const code = await sock.requestPairingCode(number);
+    console.log(`
+Pilih metode:
+1) QR Code
+2) Pairing Code
+`)
 
-                if (code) {
-                    console.log("\n=== PAIRING CODE ===\n");
-                    console.log(code);
-                } else {
-                    console.log("Nomor tidak support pairing, tampilkan QR.");
-                    isPairing = false;
-                }
-            } catch (e) {
-                console.log("Gagal membuat pairing code.");
-                isPairing = false;
-            }
-        }
+    const pilih = await ask("> ")
 
-        if (choose == "3") {
-            console.clear();
-            try {
-                let me = sock.user?.id || "Belum terhubung.";
-                console.log("Device:", me);
-            } catch {
-                console.log("Error membaca device.");
-            }
-        }
+    if (pilih === "1") {
+        if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
+        else console.log(red("→ Tunggu QR muncul otomatis..."))
+    }
 
-        if (choose == "4") {
-            console.log("Bot dimatikan.");
-            process.exit(0);
-        }
+    else if (pilih === "2") {
+        const number = await ask("Masukkan nomor WhatsApp (628xxxx): ")
 
-        if (choose == "5") {
-            console.log("Menghapus session...");
-            const fs = require("fs");
-            fs.rmSync("./session", { recursive: true, force: true });
-            console.log("Logout berhasil.");
-            process.exit(0);
-        }
+        console.log(green("→ Membuat pairing code..."))
 
-        if (choose == "6") {
-            console.log("Github kamu sendiri lah bang, bukan tugas gua 😹");
+        try {
+            const code = await global.sock.requestPairingCode(number)
+
+            console.log(`
+────────────────────────────
+ Pairing Code: ${green(code)}
+────────────────────────────
+Masukkan di WhatsApp → Tautkan Perangkat
+`)
+        } catch (err) {
+            console.log(red("Gagal membuat pairing code! Fallback QR."))
+
+            if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
         }
     }
 }
 
-start();
+
+
+// INTERNAL RESTART
+function restartBot() {
+    startTime = Date.now()
+    msgCount = 0
+    errCount = 0
+    lastLog = "-"
+    loggedIn = false
+
+    delete require.cache[require.resolve("./axiom.js")]
+    startBot()
+}
+
+
+
+// ====================== START BOT ==========================
+async function startBot() {
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState("./auth")
+        const { version } = await fetchLatestBaileysVersion()
+
+        const sock = makeWASocket({
+            version,
+            auth: state,
+            logger: Pino({ level: "silent" })
+        })
+
+        global.sock = sock
+        setupMenu(sock)
+
+        panel(red("Tidak Terhubung"), "-")
+
+        // CONNECTION EVENTS
+        sock.ev.on("connection.update", async (update) => {
+            const { qr, connection, lastDisconnect } = update
+
+            if (qr && !loggedIn) {
+                global.lastQR = qr
+                panel(red("Scan QR!"), "-")
+                qrcode.generate(qr, { small: true })
+            }
+
+            if (connection === "open") {
+                loggedIn = true
+                panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
+            }
+
+            if (connection === "close") {
+                loggedIn = false
+
+                const code = lastDisconnect?.error?.output?.statusCode
+
+                if (code === 401) {
+                    console.log(red("Session invalid, menghapus auth..."))
+                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
+                    return restartBot()
+                }
+
+                panel(red("Terputus, reconnect..."), "-")
+                setTimeout(() => startBot(), 2000)
+            }
+        })
+
+        sock.ev.on("creds.update", saveCreds)
+
+        // HANDLE PESAN
+        sock.ev.on("messages.upsert", async ({ messages }) => {
+            if (!loggedIn) return
+
+            const msg = messages[0]
+            if (!msg.message) return
+
+            if (!msg.key.fromMe) msgCount++
+
+            const from = msg.key.remoteJid
+            const text =
+                msg.message.conversation ||
+                msg.message.extendedTextMessage?.text ||
+                ""
+
+            lastLog = `${from} → ${text}`
+            panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
+
+            if (text === "ping") {
+                let t = Date.now()
+                await sock.sendMessage(from, { text: "pong!" })
+                let ping = Date.now() - t
+                panel(green("Terhubung ✓"), sock.user.id.split(":")[0], ping + " ms")
+            }
+        })
+
+    } catch (e) {
+        console.log(red("Startup Error:"), e)
+        setTimeout(startBot, 2000)
+    }
+}
+
+startBot()
