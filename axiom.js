@@ -2,7 +2,7 @@ const {
     default: makeWASocket,
     useMultiFileAuthState,
     fetchLatestBaileysVersion,
-    generateWAMessageFromContent,
+    makeCacheableSignalKeyStore
 } = require("@whiskeysockets/baileys")
 
 const qrcode = require("qrcode-terminal")
@@ -10,84 +10,73 @@ const Pino = require("pino")
 const readline = require("readline")
 const fs = require("fs")
 
-// =============== GLOBAL STATE ===============
+// GLOBAL
 let startTime = Date.now()
 let msgCount = 0
 let errCount = 0
 let lastLog = "-"
-let lastCPU = 0
 let reconnecting = false
-let isConnected = false
+let pairingInProgress = false
 global.sock = null
-global.lastQR = null
 
-// =============== CPU MONITOR ===============
+// CPU USAGE
 let lastCPUTime = process.cpuUsage()
+let lastCPU = 0
 setInterval(() => {
     const now = process.cpuUsage()
-    lastCPU = (
-        (now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000
-    ).toFixed(1)
+    lastCPU = ((now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000).toFixed(1)
     lastCPUTime = now
 }, 1000)
 
-// =============== HELPERS ===============
-function formatUptime(ms) {
+// HELPERS
+function uptime(ms) {
     let s = Math.floor(ms / 1000)
     let m = Math.floor(s / 60)
     let h = Math.floor(m / 60)
-    s %= 60
-    m %= 60
-    return `${h}h ${m}m ${s}s`
-}
-
-function getRam() {
-    return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
+    return `${h}h ${m % 60}m ${s % 60}s`
 }
 
 const green = (t) => `\x1b[32m${t}\x1b[0m`
 const red = (t) => `\x1b[31m${t}\x1b[0m`
 const yellow = (t) => `\x1b[33m${t}\x1b[0m`
 
-// =============== PANEL ===============
 function panel(status, device, ping = "-", showSource = false) {
     console.clear()
     console.log(`
-┌──────────────────────────────────────────────────────────┐
-│                ${green("AXIOM WHATSAPP BOT PANEL")}                   │
-├──────────────────────────────────────────────────────────┤
-│ Status   : ${status}
-│ Device   : ${device}
-│ Uptime   : ${formatUptime(Date.now() - startTime)}
-│ CPU      : ${lastCPU} ms
-│ RAM      : ${getRam()}
-│ Ping     : ${ping}
-│ Msg In   : ${msgCount}
-│ Errors   : ${errCount}
-├──────────────────────────────────────────────────────────┤
-│ Menu Interaktif:
+┌───────────────────────────────────────────┐
+│            ${green("AXIOM BOT ULTRA V3")}            │
+├───────────────────────────────────────────┤
+│ Status : ${status}
+│ Device : ${device}
+│ Uptime : ${uptime(Date.now() - startTime)}
+│ CPU    : ${lastCPU} ms
+│ RAM    : ${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)} MB
+│ Ping   : ${ping}
+│ Msg In : ${msgCount}
+│ Errors : ${errCount}
+├───────────────────────────────────────────┤
+│ Menu:
 │ 1) Restart Bot
 │ 2) Refresh Panel
 │ 3) Tautkan Perangkat (QR / Pairing)
 │ 4) Matikan Bot
-│ 5) Logout Auth (Hapus Session)
-│ 6) Tentang / Source
-├──────────────────────────────────────────────────────────┤
+│ 5) Logout Auth
+│ 6) About / Source
+├───────────────────────────────────────────┤
 │ Log Terakhir:
 │ ${yellow(lastLog)}
 ${showSource ? `
-├──────────────────────────────────────────────────────────┤
-│ ${green("Source & Credits")}
+├───────────────────────────────────────────┤
 │ Author        : Rangga
 │ Script Writer : ChatGPT
 │ Designer      : Rangga & ChatGPT
-│ Versi Bot     : Axiom Ultra v3.0
+│ Versi         : AXIOM ULTRA V3
 ` : ""}
-└──────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────┘
 `)
 }
 
-// =============== TERMINAL MENU ===============
+// TERMINAL MENU
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -98,88 +87,85 @@ function setupMenu(sock) {
     rl.on("line", async (input) => {
         switch (input.trim()) {
             case "1":
-                console.log(red("\n→ Restart bot...\n"))
                 restartBot()
                 break
 
             case "2":
-                panel(
-                    isConnected ? green("Terhubung ✓") : red("Tidak Terhubung"),
-                    sock?.user?.id?.split(":")[0] || "-",
-                    "-"
-                )
+                panel("Terhubung ✓", sock?.user?.id?.split(":")[0] || "-")
                 break
 
             case "3":
-    console.log(green("Pilih metode:"))
-    console.log("1) QR Code")
-    console.log("2) Pairing Code")
-    rl.question("> ", async (m) => {
-        if (m == "1") {
-            panel("Menunggu QR...", "QR Login")
-            if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
-        }
-
-        else if (m == "2") {
-            console.log(yellow("→ Membuat pairing code..."))
-
-            try {
-                // Jalankan pembuat pairing code!
-                const code = await sock.requestPairingCode()
-
-                console.log(green("\n► Pairing Code: " + code + "\n"))
-                console.log("Buka WhatsApp → Linked Devices → Masukkan kode ini\n")
-            } catch (e) {
-                console.log(red("Gagal membuat pairing code: " + e.message))
-            }
-        }
-
-        else console.log(yellow("Pilihan tidak dikenal"))
-    })
-    break
+                if (sock?.user) {
+                    console.log(red("Sudah terhubung! Tidak bisa tautkan ulang."))
+                } else {
+                    pairingMenu()
+                }
+                break
 
             case "4":
-                console.log(red("\n→ Bot dimatikan.\n"))
+                console.log(red("→ BOT DIMATIKAN"))
                 process.exit(0)
                 break
 
             case "5":
-                console.log(red("\n→ Menghapus session & logout...\n"))
-                try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-                console.log(green("Session dihapus. Jalankan lagi untuk scan ulang.\n"))
-                process.exit(0)
+                console.log(red("\n→ Menghapus AUTH..."))
+                fs.rmSync("./auth", { recursive: true, force: true })
+                console.log(green("Auth dihapus. Restart bot untuk login ulang.\n"))
                 break
 
             case "6":
-                panel(
-                    isConnected ? green("Terhubung ✓") : red("Tidak Terhubung"),
-                    sock?.user?.id?.split(":")[0] || "-",
-                    "-",
-                    true
-                )
+                panel("Terhubung ✓", sock?.user?.id?.split(":")[0] || "-", "-", true)
                 break
 
             default:
-                console.log(yellow("Perintah tidak dikenal."))
+                console.log(yellow("Perintah tidak dikenal"))
         }
     })
 }
 
-// =============== RESTART INTERNAL ===============
+// PAIRING MENU HYBRID
+function pairingMenu() {
+    console.log(`
+Pilih metode tautkan perangkat:
+
+1) QR CODE (scan di WhatsApp)
+2) PAIRING CODE (memasukkan nomor dulu)
+
+Ketik angka:   
+`)
+    rl.question("> ", async (x) => {
+        if (x === "1") startBot("qr")
+        else if (x === "2") askNumber()
+        else console.log(red("Pilihan tidak valid"))
+    })
+}
+
+function askNumber() {
+    rl.question("\nMasukkan nomor WhatsApp (628xxxx): ", async (num) => {
+        if (!num.startsWith("62")) return console.log(red("Nomor tidak valid"))
+        global.pairNumber = num
+        startBot("pair")
+    })
+}
+
+// INTERNAL RESTART
 function restartBot() {
+    console.log(red("\n→ Restarting bot...\n"))
     startTime = Date.now()
     msgCount = 0
     errCount = 0
     lastLog = "-"
-    reconnecting = false
-    isConnected = false
+    pairingInProgress = false
 
     delete require.cache[require.resolve("./axiom.js")]
+    process.removeAllListeners("uncaughtException")
+    process.removeAllListeners("unhandledRejection")
+
     startBot()
 }
 
-// =============== START BOT MAIN ===============
-async function startBot() {
+// START BOT
+async function startBot(mode = "normal") {
     try {
         if (global.sock) {
             try { global.sock.end?.() } catch {}
@@ -189,56 +175,69 @@ async function startBot() {
         const { state, saveCreds } = await useMultiFileAuthState("./auth")
         const { version } = await fetchLatestBaileysVersion()
 
-        const sock = makeWASocket({
-            logger: Pino({ level: "silent" }),
+        let config = {
             version,
-            auth: state,
-            markOnlineOnConnect: false,
+            logger: Pino({ level: "silent" }),
             printQRInTerminal: false,
-        })
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, Pino().info)
+            }
+        }
 
+        if (mode === "pair") {
+            config.mobile = ["android"]
+        }
+
+        const sock = makeWASocket(config)
         global.sock = sock
         setupMenu(sock)
-        panel("Menunggu koneksi...", "-", "-")
 
-        // =============== EVENT CONNECTION ===============
-        sock.ev.on("connection.update", async ({ qr, connection, lastDisconnect }) => {
+        if (!sock.user) {
+            panel("Menunggu Login...", "-")
+        }
 
-            if (qr) {
-                global.lastQR = qr
-                isConnected = false
-                panel("Scan QR!", "-", "-")
+        // CONNECTION EVENTS
+        sock.ev.on("connection.update", async (u) => {
+            const { qr, connection, lastDisconnect, pairingCode } = u
+
+            if (mode === "pair" && pairingCode) {
+                console.clear()
+                console.log(green("\nPAIRING CODE: "))
+                console.log(green(pairingCode))
+                return
+            }
+
+            if (qr && mode === "qr") {
+                panel("Scan QR!", "-")
                 qrcode.generate(qr, { small: true })
             }
 
             if (connection === "open") {
-                isConnected = true
-                reconnecting = false
+                pairingInProgress = false
                 panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
             }
 
             if (connection === "close") {
-                isConnected = false
                 const code = lastDisconnect?.error?.output?.statusCode
 
                 if (code === 401) {
-                    panel(red("Session Invalid — Menghapus auth..."), "Reset")
-                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-                    console.log(red("\n→ Session dihapus. Scan ulang.\n"))
+                    console.log(red("Session invalid! Menghapus auth..."))
+                    fs.rmSync("./auth", { recursive: true, force: true })
                     return restartBot()
                 }
 
                 if (!reconnecting) {
                     reconnecting = true
-                    panel(red("Terputus — Reconnect..."), "Reconnect")
-                    setTimeout(() => startBot(), 2500)
+                    panel(red("Terputus, reconnect..."), "Reconnect")
+                    setTimeout(() => startBot(), 2000)
                 }
             }
         })
 
         sock.ev.on("creds.update", saveCreds)
 
-        // =============== EVENT PESAN ===============
+        // MESSAGE
         sock.ev.on("messages.upsert", async ({ messages }) => {
             const msg = messages[0]
             if (!msg.message) return
@@ -246,38 +245,35 @@ async function startBot() {
             if (!msg.key.fromMe) msgCount++
 
             const from = msg.key.remoteJid
-            const text =
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text ||
-                ""
+            const text = msg.message.conversation ||
+                msg.message.extendedTextMessage?.text || ""
 
             lastLog = `${from} → ${text}`
-            panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
+            panel("Terhubung ✓", sock.user.id.split(":")[0])
 
             if (text === "ping") {
                 let t = Date.now()
                 await sock.sendMessage(from, { text: "pong!" })
-                let ping = Date.now() - t
-                panel(green("Terhubung ✓"), sock.user.id.split(":")[0], ping + " ms")
+                panel("Terhubung ✓", sock.user.id.split(":")[0], (Date.now() - t) + " ms")
             }
         })
 
-        // =============== ANTI-CRASH ===============
+        // ANTI CRASH
         process.on("uncaughtException", (err) => {
             errCount++
-            lastLog = red(err.message)
-            panel(red("Error!"), "-")
+            lastLog = red("Error: " + err.message)
+            panel(red("Error!"), "Running")
         })
 
         process.on("unhandledRejection", (err) => {
             errCount++
-            lastLog = red(err)
-            panel(red("Error!"), "-")
+            lastLog = red("Reject: " + err)
+            panel(red("Error!"), "Running")
         })
 
     } catch (e) {
-        console.log(red("Startup Error:"), e)
-        setTimeout(startBot, 1500)
+        console.log(red("Fatal Error:"), e)
+        setTimeout(startBot, 2000)
     }
 }
 
