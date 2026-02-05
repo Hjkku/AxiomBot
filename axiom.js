@@ -269,7 +269,6 @@ async function startBot() {
                 ""
 
             lastLog = `${from} → ${text}`
-            panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
 
             if (text === "ping") {
                 let t = Date.now()
