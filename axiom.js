@@ -17,7 +17,6 @@ let lastCPU = 0
 let reconnecting = false
 global.sock = null
 
-// STATUS PANEL GLOBAL (FIX)
 global.currentStatus = "Menunggu..."
 global.currentDevice = "-"
 
@@ -42,11 +41,9 @@ function formatUptime(ms) {
     m %= 60
     return `${h}h ${m}m ${s}s`
 }
-
 function getRam() {
     return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
 }
-
 function green(t) { return `\x1b[32m${t}\x1b[0m` }
 function red(t) { return `\x1b[31m${t}\x1b[0m` }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
@@ -122,7 +119,7 @@ function setupMenu(sock) {
     })
 }
 
-// ========== ANTI CORRUPT HYBRID ==========
+// ========== ANTI CORRUPT ==========
 function checkAuthIntegrity() {
     try {
         if (!fs.existsSync("./auth")) return true
@@ -155,11 +152,29 @@ function restartBot() {
     process.removeAllListeners("uncaughtException")
     process.removeAllListeners("unhandledRejection")
 
-    startBot()
+    loginSelector()
+}
+
+// ========== LOGIN SELECTOR (FITUR BARU) ==========
+function loginSelector() {
+    console.clear()
+    console.log(`
+=======================================
+     PILIH METODE LOGIN WHATSAPP
+=======================================
+1) Pairing Code
+2) QR Code
+=======================================
+`)
+
+    rl.question("Pilih (1/2): ", async (choice) => {
+        if (choice === "1") startBot("pairing")
+        else startBot("qr")
+    })
 }
 
 // ========== START BOT ==========
-async function startBot() {
+async function startBot(loginMode = "qr") {
     try {
         if (checkAuthIntegrity()) {
             try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
@@ -176,30 +191,45 @@ async function startBot() {
         const sock = makeWASocket({
             version,
             auth: state,
-            logger: Pino({ level: "silent" })
+            logger: Pino({ level: "silent" }),
+            printQRInTerminal: loginMode === "qr"
         })
 
         global.sock = sock
         setupMenu(sock)
 
-        global.currentStatus = "Menunggu QR..."
-        global.currentDevice = "-"
+        // Jika login Pairing Code
+        if (loginMode === "pairing" && !state.creds.registered) {
+            rl.question("Masukan nomor WhatsApp (62xxxxx): ", async (num) => {
+                num = num.replace(/[^0-9]/g, "")
+                global.currentStatus = "Mengambil Pairing Code..."
+                panel()
+
+                try {
+                    let code = await sock.requestPairingCode(num)
+                    console.log(green("\n=== PAIRING CODE ==="))
+                    console.log(code)
+                    console.log("====================\n")
+                } catch (e) {
+                    console.log(red("Gagal membuat pairing code: " + e.message))
+                }
+            })
+        }
+
+        global.currentStatus = "Menunggu Login..."
         panel()
 
         // CONNECTION UPDATE
         sock.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
-            // QR
-            if (qr) {
+            if (qr && loginMode === "qr") {
                 global.lastQR = qr
                 global.currentStatus = "Scan QR!"
-                global.currentDevice = "-"
                 panel()
                 qrcode.generate(qr, { small: true })
             }
 
-            // OPEN
             if (connection === "open") {
                 let dev = sock.user.id.split(":")[0]
 
@@ -214,7 +244,6 @@ async function startBot() {
                 panel()
             }
 
-            // CLOSE
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
 
@@ -229,7 +258,7 @@ async function startBot() {
 
                 if (!reconnecting) {
                     reconnecting = true
-                    setTimeout(startBot, 2500)
+                    setTimeout(() => startBot(loginMode), 2500)
                 }
             }
         })
@@ -240,6 +269,7 @@ async function startBot() {
         sock.ev.on("messages.upsert", async ({ messages }) => {
             let msg = messages[0]
             if (!msg.message) return
+
             if (!msg.key.fromMe) msgCount++
 
             let from = msg.key.remoteJid
@@ -265,7 +295,6 @@ async function startBot() {
             lastLog = red("Error: " + err.message)
             panel()
         })
-
         process.on("unhandledRejection", (err) => {
             errCount++
             lastLog = red("Reject: " + err)
@@ -274,8 +303,8 @@ async function startBot() {
 
     } catch (e) {
         console.log(red("Startup Error:"), e)
-        setTimeout(startBot, 2000)
+        setTimeout(() => startBot(loginMode), 2000)
     }
 }
 
-startBot()
+loginSelector()
