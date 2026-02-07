@@ -14,21 +14,16 @@ async function commandHandler(axiom, msg, from, text) {
         return axiom.sendMessage(from, { text: fun.menuText() })
     }
 
-    // ----- BOT INFO -----
-    if (cmd === "botinfo" || cmd === "!botinfo") {
-        return axiom.sendMessage(from, { text: fun.botInfo() })
-    }
-    if (cmd.startsWith("!vampireblank") || cmd.startsWith("vampireblank")) {
-        const args = text.split(" ").slice(1).join(" ")
-        if (!args) return axiom.sendMessage(from, { text: "Tolong sebutkan target!" })
-        try {
-            await fun.VampireBlank(axiom, args) // <-- kirim axiom + target
-            return axiom.sendMessage(from, { text: `vampireBlank dikirim ke ${args}` })
-        } catch (err) {
-            console.error(err)
-            return axiom.sendMessage(from, { text: "Gagal menjalankan vampireBlank." })
-        }
-    }
+    // ----- SPAM ----
+    case 'spm':
+  if (!args[0]) return m.reply("Contoh:\n!spm 628xxxx 5");
+
+  let target = args[0];
+  let jumlah = parseInt(args[1]) || 5;
+
+  await SpamLokasiTag(axiom, target, jumlah);
+  m.reply("✔️ Spam lokasi + tag terkirim.");
+  break;
 }
 
 module.exports = commandHandler
