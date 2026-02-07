@@ -28,7 +28,7 @@ function botInfo() {
 }
 
 
-async function SpamLokasiTag(axiom, target, count = 10) {
+async function SLT(axiom, target, count = 10) {
 
   // pastikan format JID sudah benar
   const jid = target.includes('@') ? target : target + "@s.whatsapp.net";
@@ -45,7 +45,7 @@ async function SpamLokasiTag(axiom, target, count = 10) {
     });
 
     // delay 500 ms
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 200));
 
     // --- 2. Tag ---
     await axiom.sendMessage(jid, {
@@ -54,7 +54,7 @@ async function SpamLokasiTag(axiom, target, count = 10) {
     });
 
     // delay 500 ms
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 200));
   }
 }
 
@@ -62,5 +62,5 @@ module.exports = {
     dbFile,
     menuText,
     botInfo,
-    VampireBlank
+    SLT
 }
