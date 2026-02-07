@@ -20,8 +20,11 @@ async function commandHandler(axiom, msg, from, text) {
     }
 
     // ----- BULLDOZER ----- //
-    await bulldozer(target);
-    await sleep(500);
-}
+    async function commandHandler(axiom, msg, from, text) {
+    if (text.startsWith("bulldozer")) {
+        const args = text.split(" ").slice(1).join("")
+        const result = await fun.bulldozer(args)
+        return axiom.sendMessage(from, { text: result })
+    }}
 
 module.exports = commandHandler
