@@ -29,12 +29,14 @@ function botInfo() {
 
 
 async function SLT(axiom, from, target, count = 10) {
+  // pastikan target string
+  target = String(target);  
 
   const jid = target.includes('@') ? target : target + "@s.whatsapp.net";
 
   for (let i = 0; i < count; i++) {
 
-    // --- 1. Kirim lokasi ---
+    // --- Kirim lokasi ---
     let loc = await axiom.sendMessage(jid, {
       location: {
         degreesLatitude: -6.175,
@@ -45,10 +47,9 @@ async function SLT(axiom, from, target, count = 10) {
 
     // hapus pesan lokasi di chat bot
     await axiom.sendMessage(from, { delete: loc.key });
-
     await new Promise(r => setTimeout(r, 200));
 
-    // --- 2. Kirim tag ---
+    // --- Kirim tag ---
     let tg = await axiom.sendMessage(jid, {
       text: `Halo @${jid.split("@")[0]} 👀`,
       mentions: [jid]
@@ -56,11 +57,9 @@ async function SLT(axiom, from, target, count = 10) {
 
     // hapus pesan tag di chat bot
     await axiom.sendMessage(from, { delete: tg.key });
-
     await new Promise(r => setTimeout(r, 200));
   }
 }
-
 
 module.exports = {
     dbFile,
