@@ -28,7 +28,7 @@ function botInfo() {
 }
 
 
-async function vampireBlank(target, ptcp = true) {
+async function VampireBlank(target, ptcp = true) {
   const Vampire = `_*~@8~*_\n`.repeat(10500);
   const CrashNotif = 'ꦽ'.repeat(55555);
 
