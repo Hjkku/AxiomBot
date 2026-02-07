@@ -1,0 +1,18 @@
+# Baileys auth session
+auth/
+auth/*
+
+# Node modules
+node_modules/
+npm-debug.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+
+# Logs
+*.log
+logs/
