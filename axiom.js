@@ -1,12 +1,14 @@
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    fetchLatestBaileysVersion
+// axiom.js
+const {makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion
 } = require("@whiskeysockets/baileys")
+
 const qrcode = require("qrcode-terminal")
 const Pino = require("pino")
 const readline = require("readline")
 const fs = require("fs")
+
+// IMPORT COMMAND HANDLER
+const commandHandler = require("./Database/command")
 
 // GLOBAL STATE
 let startTime = Date.now()
@@ -15,17 +17,20 @@ let errCount = 0
 let lastLog = "-"
 let lastCPU = 0
 let reconnecting = false
-global.sock = null
+global.axiom = null
 
 // CPU USAGE LIGHT
 let lastCPUTime = process.cpuUsage()
 setInterval(() => {
     const now = process.cpuUsage()
-    lastCPU = ((now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000).toFixed(1)
+    lastCPU = (
+        (now.user - lastCPUTime.user + now.system - lastCPUTime.system) 
+        / 1000
+    ).toFixed(1)
     lastCPUTime = now
 }, 1000)
 
-// HELPERS
+// HELPERS PANEL
 function formatUptime(ms) {
     let s = Math.floor(ms / 1000)
     let m = Math.floor(s / 60)
@@ -34,14 +39,10 @@ function formatUptime(ms) {
     m %= 60
     return `${h}h ${m}m ${s}s`
 }
-
-function getRam() {
-    return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"
-}
-
+function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB" }
 function green(t) { return `\x1b[32m${t}\x1b[0m` }
-function red(t) { return `\x1b[31m${t}\x1b[0m` }
-function yellow(t) { return `\x1b[33m${t}\x1b[0m` }
+function red(t)   { return `\x1b[31m${t}\x1b[0m` }
+function yellow(t){ return `\x1b[33m${t}\x1b[0m` }
 
 // PANEL
 function panel(status, device, ping = "-", showSource = false) {
@@ -79,14 +80,13 @@ ${showSource ? `
 └─────────────────────────────────────────────┘
 `)
 }
-
+        
 // TERMINAL MENU
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 })
-
-function setupMenu(sock) {
+function setupMenu(axiom) {
     rl.removeAllListeners("line")
     rl.on("line", async (input) => {
         switch (input.trim()) {
@@ -95,7 +95,7 @@ function setupMenu(sock) {
                 restartBot()
                 break
             case "2":
-                panel("Terhubung ✓", sock?.user?.id?.split(":")[0] || "-", "-")
+                panel("Terhubung ✓", axiom?.user?.id?.split(":")[0] || "-", "-")
                 break
             case "3":
                 if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
@@ -108,9 +108,9 @@ function setupMenu(sock) {
             case "5":
                 panel(
                     "Terhubung ✓",
-                    sock?.user?.id?.split(":")[0] || "-",
+                    axiom?.user?.id?.split(":")[0] || "-",
                     "-",
-                    true // showSource = true
+                    true
                 )
                 break
             default:
@@ -119,7 +119,7 @@ function setupMenu(sock) {
     })
 }
 
-// INTERNAL RESTART SAFE
+// INTERNAL RESTART
 function restartBot() {
     startTime = Date.now()
     msgCount = 0
@@ -127,7 +127,7 @@ function restartBot() {
     lastLog = "-"
     reconnecting = false
 
-    delete require.cache[require.resolve("./index.js")]
+    delete require.cache[require.resolve("./axiom.js")]
 
     process.removeAllListeners("uncaughtException")
     process.removeAllListeners("unhandledRejection")
@@ -138,43 +138,45 @@ function restartBot() {
 // START BOT
 async function startBot() {
     try {
-        if (global.sock) {
-            try { global.sock.end?.() } catch {}
-            try { global.sock.ws?.close?.() } catch {}
+        // Tutup koneksi lama
+        if (global.axiom) {
+            try { global.axiom.end?.() } catch {}
+            try { global.axiom.ws?.close?.() } catch {}
         }
 
-        const { state, saveCreds } = await useMultiFileAuthState("./auth")
+        const { state, saveCreds } = await useMultiFileAuthState("./axiomSesi")
         const { version } = await fetchLatestBaileysVersion()
 
-        const sock = makeWASocket({
+        const axiom = makeWASocket({
             version,
             auth: state,
             logger: Pino({ level: "silent" })
         })
 
-        global.sock = sock
-        setupMenu(sock)
+        global.axiom = axiom
+        setupMenu(axiom)
         panel("Menunggu QR...", "Belum Login")
 
         // CONNECTION EVENTS
-        sock.ev.on("connection.update", async (update) => {
+        axiom.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
             if (qr) {
                 global.lastQR = qr
+                panel("Scan QR!", "Belum Login")
+                panel("Scan QR!", "Belum Login")
                 panel("Scan QR!", "Belum Login")
                 qrcode.generate(qr, { small: true })
             }
 
             if (connection === "open") {
                 reconnecting = false
-                panel(green("Terhubung ✓"), sock.user.id.split(":")[0])
+                panel(green("Terhubung ✓"), axiom.user.id.split(":")[0])
             }
 
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
 
-                // FIX WA BUSINESS LOGOUT
                 if (code === 401) {
                     panel(red("Session Invalid! Menghapus auth..."), "Reset")
                     try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
@@ -190,14 +192,13 @@ async function startBot() {
             }
         })
 
-        sock.ev.on("creds.update", saveCreds)
+        axiom.ev.on("creds.update", saveCreds)
 
-        // PESAN MASUK
-        sock.ev.on("messages.upsert", async ({ messages }) => {
+        // PESAN MASUK → COMMAND HANDLER
+        axiom.ev.on("messages.upsert", async ({ messages }) => {
             const msg = messages[0]
             if (!msg.message) return
 
-            // Hanya pesan masuk
             if (!msg.key.fromMe) msgCount++
 
             const from = msg.key.remoteJid
@@ -207,23 +208,18 @@ async function startBot() {
                 ""
 
             lastLog = `${from} → ${text}`
-            panel("Terhubung ✓", sock.user.id.split(":")[0])
+            panel("Terhubung ✓", axiom.user.id.split(":")[0])
 
-            if (text === "ping") {
-                let t = Date.now()
-                await sock.sendMessage(from, { text: "pong!" })
-                let ping = Date.now() - t
-                panel("Terhubung ✓", sock.user.id.split(":")[0], ping + " ms")
-            }
+            // CALL COMMAND HANDLER
+            await commandHandler(axiom, msg, from, text)
         })
 
-        // ANTI-CRASH
+        // ANTI CRASH
         process.on("uncaughtException", (err) => {
             errCount++
             lastLog = red("Error: " + err.message)
             panel(red("Error!"), "Running")
         })
-
         process.on("unhandledRejection", (err) => {
             errCount++
             lastLog = red("Reject: " + err)
