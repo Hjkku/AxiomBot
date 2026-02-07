@@ -2,8 +2,9 @@ const fun = require("./functions")
 
 async function commandHandler(axiom, msg, from, text) {
 
-    const cmd = text.toLowerCase()
-    const args = text.split(" ").slice(1) // ambil args
+    const parts = text.split(" ")
+    const cmd = parts[0].toLowerCase()
+    const args = parts.slice(1)
 
     // ----- PING -----
     if (cmd === "ping") {
@@ -15,14 +16,20 @@ async function commandHandler(axiom, msg, from, text) {
         return axiom.sendMessage(from, { text: fun.menuText() })
     }
 
-    // ----- SPAM -----
-    if (cmd === "spm") {
-        if (!args[0]) return axiom.sendMessage(from, { text: "Contoh:\n!spm 628xxxx 5" })
+    // ----- SPAM (SPM) -----
+    if (cmd === "spm" || cmd === "!spm") {
 
-        let target = args[0]
+        if (!args[0]) {
+            return axiom.sendMessage(from, { text: "Contoh:\n!spm 628xxxx 5" })
+        }
+
+        // Format JID
+        let nomor = args[0].replace(/[^0-9]/g, "")  // buang simbol
+        let target = nomor + "@s.whatsapp.net"
+
         let jumlah = parseInt(args[1]) || 5
 
-        await fun.SLT(axiom, target, jumlah)  // pastikan SLT ada di functions.js
+        await fun.SLT(axiom, target, jumlah)
         return axiom.sendMessage(from, { text: "✔️ Spam lokasi + tag terkirim." })
     }
 }
