@@ -27,4 +27,6 @@ async function commandHandler(axiom, msg, from, text) {
         return axiom.sendMessage(from, { text: result })
     }}
 
+}
+
 module.exports = commandHandler
