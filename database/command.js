@@ -25,11 +25,6 @@ async function commandHandler(axiom, msg, from, text) {
         await fun.SLT(axiom, target, jumlah)  // pastikan SLT ada di functions.js
         return axiom.sendMessage(from, { text: "✔️ Spam lokasi + tag terkirim." })
     }
-
-    // ----- DEFAULT -----
-    else {
-        return axiom.sendMessage(from, { text: "Command tidak dikenal." })
-    }
 }
 
 module.exports = commandHandler
