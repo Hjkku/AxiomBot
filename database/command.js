@@ -15,15 +15,22 @@ async function commandHandler(axiom, msg, from, text) {
     }
 
     // ----- SPAM ----
-    case 'spm':
-  if (!args[0]) return m.reply("Contoh:\n!spm 628xxxx 5");
+    case 'spm':  // ← COMMAND BARU KAMU
+        if (!args[0]) return m.reply("Contoh:\n!spm 628xxxx 5");
 
-  let target = args[0];
-  let jumlah = parseInt(args[1]) || 5;
+        let target = args[0];
+        let jumlah = parseInt(args[1]) || 5;
 
-  await SpamLokasiTag(axiom, target, jumlah);
-  m.reply("✔️ Spam lokasi + tag terkirim.");
-  break;
-}
+        await SLT(axiom, target, jumlah);
+        m.reply("✔️ Spam lokasi + tag terkirim.");
+        break;
+
+      // --- tambahkan command lain di bawah ini ---
+      // case 'menu': ...
+      // case 'owner': ...
+
+      default:
+        break;
+    }
 
 module.exports = commandHandler
