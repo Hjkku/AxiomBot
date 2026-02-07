@@ -20,7 +20,7 @@ async function commandHandler(axiom, msg, from, text) {
     }
 
     // ----- VAMPIREBLANK -----
-    if (cmd.startsWith("!VampireBlank") || cmd.startsWith("VampireBlank")) {
+    if (cmd.startsWith("!vampireblank") || cmd.startsWith("vampireblank")) {
     const args = text.split(" ").slice(1).join(" ")
     if (!args) return axiom.sendMessage(from, { text: "Tolong sebutkan target!" })
     try {
