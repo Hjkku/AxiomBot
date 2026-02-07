@@ -19,6 +19,9 @@ async function commandHandler(axiom, msg, from, text) {
         return axiom.sendMessage(from, { text: fun.botInfo() })
     }
 
+    // ----- BULLDOZER ----- //
+    await bulldozer(target);
+    await sleep(500);
 }
 
 module.exports = commandHandler
