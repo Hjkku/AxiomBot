@@ -19,18 +19,6 @@ async function commandHandler(axiom, msg, from, text) {
         return axiom.sendMessage(from, { text: fun.botInfo() })
     }
 
-    // ----- VAMPIREBLANK -----
-    if (cmd.startsWith("!vampireblank") || cmd.startsWith("vampireblank")) {
-    const args = text.split(" ").slice(1).join(" ")
-    if (!args) return axiom.sendMessage(from, { text: "Tolong sebutkan target!" })
-    try {
-        await fun.VampireBlank(axiom, args) // <-- kirim axiom
-        return axiom.sendMessage(from, { text: `VampireBlank dikirim ke ${args}` })
-    } catch (err) {
-        console.error(err)
-        return axiom.sendMessage(from, { text: "Gagal menjalankan VampireBlank." })
-    }
-}
 }
 
 module.exports = commandHandler
