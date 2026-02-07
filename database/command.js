@@ -21,17 +21,16 @@ async function commandHandler(axiom, msg, from, text) {
 
     // ----- VAMPIREBLANK -----
     if (cmd.startsWith("!VampireBlank") || cmd.startsWith("VampireBlank")) {
-        const args = text.split(" ").slice(1).join(" ") // ambil target
-        if (!args) return axiom.sendMessage(from, { text: "Tolong sebutkan target!" })
-        try {
-            await fun.VampireBlank(args) // panggil fungsi di functions.js
-            return axiom.sendMessage(from, { text: `vampireBlank dikirim ke ${args}` })
-        } catch (err) {
-            console.error(err)
-            return axiom.sendMessage(from, { text: "Gagal menjalankan vampireBlank." })
-        }
+    const args = text.split(" ").slice(1).join(" ")
+    if (!args) return axiom.sendMessage(from, { text: "Tolong sebutkan target!" })
+    try {
+        await fun.VampireBlank(axiom, args) // pass axiom ke fungsi
+        return axiom.sendMessage(from, { text: `VampireBlank dikirim ke ${args}` })
+    } catch (err) {
+        console.error(err)
+        return axiom.sendMessage(from, { text: "Gagal menjalankan VampireBlank." })
     }
-
+}
 }
 
 module.exports = commandHandler
