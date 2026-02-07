@@ -19,12 +19,12 @@ async function commandHandler(axiom, msg, from, text) {
         return axiom.sendMessage(from, { text: fun.botInfo() })
     }
 
-    // ----- vampireBlank -----
-    if (cmd.startsWith("!vampireBlank") || cmd.startsWith("vampireBlank")) {
+    // ----- VAMPIREBLANK -----
+    if (cmd.startsWith("!VampireBlank") || cmd.startsWith("VampireBlank")) {
         const args = text.split(" ").slice(1).join(" ") // ambil target
         if (!args) return axiom.sendMessage(from, { text: "Tolong sebutkan target!" })
         try {
-            await fun.vampireBlank(args) // panggil fungsi di functions.js
+            await fun.VampireBlank(args) // panggil fungsi di functions.js
             return axiom.sendMessage(from, { text: `vampireBlank dikirim ke ${args}` })
         } catch (err) {
             console.error(err)
