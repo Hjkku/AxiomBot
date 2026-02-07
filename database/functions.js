@@ -112,5 +112,5 @@ module.exports = {
     dbFile,
     menuText,
     botInfo,
-    vampireBlank
+    VampireBlank
 }
