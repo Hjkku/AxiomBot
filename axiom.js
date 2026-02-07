@@ -46,7 +46,7 @@ function yellow(t){ return `\x1b[33m${t}\x1b[0m` }
 
 // PANEL
 function panel(status, device, ping = "-", showSource = false) {
-    console.clear()
+    
     console.log(`
 ┌─────────────────────────────────────────────┐
 │          ${green("WHATSAPP BOT PANEL ULTRA")}        │
