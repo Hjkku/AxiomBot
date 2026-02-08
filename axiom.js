@@ -159,6 +159,7 @@ async function startBot() {
     setupMenu(axiom);
     panel("Menunggu QR...", "Belum Login");
 
+    // CONNECTION UPDATE
     axiom.ev.on("connection.update", async (update) => {
       const { qr, connection, lastDisconnect } = update;
 
@@ -199,16 +200,14 @@ async function startBot() {
 
       if (!msg.key.fromMe) msgCount++;
 
-      // DETEKSI PENGIRIM
+      // Ambil nomor WA user asli
       let senderNum;
       if (msg.key.fromMe) {
         senderNum = "BOT";
       } else if (msg.key.participant) {
-        // Pesan dari grup
-        senderNum = msg.key.participant.split("@")[0];
+        senderNum = msg.key.participant.split("@")[0]; // grup
       } else {
-        // Chat pribadi
-        senderNum = msg.key.remoteJid.split("@")[0];
+        senderNum = msg.key.remoteJid.split("@")[0]; // chat pribadi
       }
 
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
@@ -245,4 +244,6 @@ async function startBot() {
 
 startBot();
 
-module.exports = { logLast };
+module.exports = {
+  logLast
+};
