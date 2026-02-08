@@ -12,8 +12,7 @@ const commandHandler = require("./database/command");
 let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
-let logs = [];             // 4 log terakhir untuk panel
-let consoleLogLast = "";   // 1 log terakhir konsol
+let logs = []; // 4 log terakhir untuk panel
 let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
@@ -35,7 +34,6 @@ function formatUptime(ms) {
   m %= 60;
   return `${h}h ${m}m ${s}s`;
 }
-
 function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"; }
 function green(t) { return `\x1b[32m${t}\x1b[0m`; }
 function red(t) { return `\x1b[31m${t}\x1b[0m`; }
@@ -45,8 +43,6 @@ function yellow(t) { return `\x1b[33m${t}\x1b[0m`; }
 function logLast(msg) {
   logs.push(msg);
   if (logs.length > 4) logs.shift();
-
-  consoleLogLast = msg;
   console.log(msg);
 }
 
@@ -75,9 +71,6 @@ function panel(status, device, ping = "-", showSource = false) {
 ├─────────────────────────────────────────────┤
 │ Log Terakhir Panel:
 │ ${logs.map(l => yellow(l)).join("\n│ ")}
-├─────────────────────────────────────────────┤
-│ Log Konsol Terakhir:
-│ ${yellow(consoleLogLast)}
 ${showSource ? `
 ├─────────────────────────────────────────────┤
 │ ${green("Source & Credits")}
@@ -127,7 +120,6 @@ function restartBot() {
   msgCount = 0;
   errCount = 0;
   logs = [];
-  consoleLogLast = "";
   reconnecting = false;
 
   delete require.cache[require.resolve("./axiom.js")];
@@ -200,17 +192,30 @@ async function startBot() {
       if (!msg.key.fromMe) msgCount++;
 
       const fromJid = msg.key.remoteJid;
-      const fromNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
+      let senderNum;
+
+      if (msg.key.fromMe) {
+        senderNum = "BOT";
+      } else if (fromJid.endsWith("@g.us")) {
+        // Grup → pakai participant
+        senderNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
+      } else {
+        // Private chat → tampil nomor WA user
+        senderNum = msg.key.participant
+          ? msg.key.participant.split("@")[0]
+          : fromJid.split("@")[0];
+      }
+
       const text =
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
         "";
 
-      logLast(`${fromNum} → ${text}`);
+      logLast(`${senderNum} → ${text}`);
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
       try {
-        await commandHandler(axiom, msg, fromJid, text); // gunakan JID lengkap untuk command
+        await commandHandler(axiom, msg, fromJid, text); // tetap pakai JID lengkap
       } catch (e) {
         errCount++;
         logLast(red("Command error: " + e.message));
@@ -238,6 +243,4 @@ async function startBot() {
 
 startBot();
 
-module.exports = {
-  logLast
-};
+module.exports = { logLast };
