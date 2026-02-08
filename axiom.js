@@ -13,7 +13,7 @@ let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
 let logs = [];             // 4 log terakhir panel
-let consoleLogLast = "";   // 1 log terakhir konsol
+let consoleLogLast = "";   // log konsol terakhir
 let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
@@ -35,7 +35,6 @@ function formatUptime(ms) {
   m %= 60;
   return `${h}h ${m}m ${s}s`;
 }
-
 function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"; }
 function green(t) { return `\x1b[32m${t}\x1b[0m`; }
 function red(t) { return `\x1b[31m${t}\x1b[0m`; }
@@ -199,18 +198,19 @@ async function startBot() {
 
       if (!msg.key.fromMe) msgCount++;
 
-      // --- Tentukan sender (private vs grup) ---
+      const fromJid = msg.key.remoteJid;
       let senderNum;
+
       if (msg.key.fromMe) {
         senderNum = "BOT";
-      } else if (msg.key.remoteJid.endsWith("@s.whatsapp.net")) {
-        // chat pribadi
-        senderNum = msg.key.remoteJid.split("@")[0]; // nomor WA user
-      } else if (msg.key.remoteJid.endsWith("@g.us")) {
-        // chat grup
-        senderNum = msg.key.participant?.split("@")[0] || msg.key.remoteJid.split("@")[0];
+      } else if (fromJid.endsWith("@g.us")) {
+        // Grup → pakai participant
+        senderNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
       } else {
-        senderNum = msg.key.remoteJid;
+        // Private chat → tampil nomor WA user
+        senderNum = msg.key.participant
+          ? msg.key.participant.split("@")[0]
+          : fromJid.split("@")[0];
       }
 
       const text =
@@ -222,7 +222,7 @@ async function startBot() {
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
       try {
-        await commandHandler(axiom, msg, msg.key.remoteJid, text); // gunakan JID lengkap untuk command
+        await commandHandler(axiom, msg, fromJid, text); // tetap pakai JID lengkap
       } catch (e) {
         errCount++;
         logLast(red("Command error: " + e.message));
@@ -250,4 +250,6 @@ async function startBot() {
 
 startBot();
 
-module.exports = { logLast };
+module.exports = {
+  logLast
+};
