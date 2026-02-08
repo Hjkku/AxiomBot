@@ -1,149 +1,10 @@
-// axiom.js
-const {makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion
-} = require("@whiskeysockets/baileys")
+// --- GLOBAL STATE TAMBAHAN ---
+let deviceLinked = false;       // apakah sudah ada device tersambung
+let currentDevice = "-";        // simpan ID device tersambung
 
-const qrcode = require("qrcode-terminal")
-const Pino = require("pino")
-const readline = require("readline")
-const fs = require("fs")
-
-// IMPORT COMMAND HANDLER
-const commandHandler = require("./database/command")
-
-// GLOBAL STATE
-let startTime = Date.now()
-let msgCount = 0
-let errCount = 0
-let lastLog = "-"
-let lastCPU = 0
-let reconnecting = false
-global.axiom = null
-
-// CPU USAGE LIGHT
-let lastCPUTime = process.cpuUsage()
-setInterval(() => {
-    const now = process.cpuUsage()
-    lastCPU = (
-        (now.user - lastCPUTime.user + now.system - lastCPUTime.system) 
-        / 1000
-    ).toFixed(1)
-    lastCPUTime = now
-}, 1000)
-
-// HELPERS PANEL
-function formatUptime(ms) {
-    let s = Math.floor(ms / 1000)
-    let m = Math.floor(s / 60)
-    let h = Math.floor(m / 60)
-    s %= 60
-    m %= 60
-    return `${h}h ${m}m ${s}s`
-}
-function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB" }
-function green(t) { return `\x1b[32m${t}\x1b[0m` }
-function red(t)   { return `\x1b[31m${t}\x1b[0m` }
-function yellow(t){ return `\x1b[33m${t}\x1b[0m` }
-
-// PANEL
-function panel(status, device, ping = "-", showSource = false) {
-    
-    console.log(`
-┌─────────────────────────────────────────────┐
-│          ${green("WHATSAPP BOT PANEL ULTRA")}        │
-├─────────────────────────────────────────────┤
-│ Status : ${status}
-│ Device : ${device}
-│ Uptime : ${formatUptime(Date.now() - startTime)}
-│ CPU    : ${lastCPU} ms
-│ RAM    : ${getRam()}
-│ Ping   : ${ping}
-│ Msg In : ${msgCount}
-│ Errors : ${errCount}
-├─────────────────────────────────────────────┤
-│ Menu Interaktif:
-│ 1) Restart Bot
-│ 2) Refresh/Clear Panel
-│ 3) Tampilkan QR Lagi
-│ 4) Keluar/Log out
-│ 5) About / Source
-├─────────────────────────────────────────────┤
-│ Log Terakhir:
-│ ${yellow(lastLog)}
-${showSource ? `
-├─────────────────────────────────────────────┤
-│ ${green("Source & Credits")}
-│ Author       : Rangga
-│ Script Writer: ChatGPT
-│ Designer     : Rangga & ChatGPT
-│ Versi Bot    : Ultra Low RAM v2.0
-` : ""}
-└─────────────────────────────────────────────┘
-`)
-}
-        
-// TERMINAL MENU
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-})
-function setupMenu(axiom) {
-    rl.removeAllListeners("line")
-    rl.on("line", async (input) => {
-        switch (input.trim()) {
-            case "1":
-                console.log(red("\n→ Restarting bot...\n"))
-                restartBot()
-                break
-            case "2":
-                panel("Terhubung ✓", axiom?.user?.id?.split(":")[0] || "-", "-")
-                break
-            case "3":
-                if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
-                else console.log(red("Tidak ada QR."))
-                break
-            case "4":
-                console.log(red("→ Keluar bot"))
-                process.exit(0)
-                break
-            case "5":
-                panel(
-                    "Terhubung ✓",
-                    axiom?.user?.id?.split(":")[0] || "-",
-                    "-",
-                    true
-                )
-                break
-            default:
-                console.log(yellow("Perintah tidak dikenal."))
-        }
-    })
-}
-
-// INTERNAL RESTART
-function restartBot() {
-    startTime = Date.now()
-    msgCount = 0
-    errCount = 0
-    lastLog = "-"
-    reconnecting = false
-
-    delete require.cache[require.resolve("./axiom.js")]
-
-    process.removeAllListeners("uncaughtException")
-    process.removeAllListeners("unhandledRejection")
-
-    startBot()
-}
-
-// START BOT
+// START BOT (modifikasi menu awal)
 async function startBot() {
     try {
-        // Tutup koneksi lama
-        if (global.axiom) {
-            try { global.axiom.end?.() } catch {}
-            try { global.axiom.ws?.close?.() } catch {}
-        }
-
         const { state, saveCreds } = await useMultiFileAuthState("./axiomSesi")
         const { version } = await fetchLatestBaileysVersion()
 
@@ -154,36 +15,56 @@ async function startBot() {
         })
 
         global.axiom = axiom
-        setupMenu(axiom)
-        panel("Menunggu QR...", "Belum Login")
+
+        // Tampilkan menu awal untuk pilih QR atau pairing
+        console.log("\nPilih metode login:")
+        console.log("1) Scan QR")
+        console.log("2) Request Pairing Code")
+        const choice = await new Promise(res => {
+            rl.question("Pilih 1/2: ", res)
+        })
+
+        if (choice === "1") {
+            console.log("Silakan scan QR di terminal...")
+        } else if (choice === "2") {
+            try {
+                const code = await axiom.requestPairingCode(`${globalOwnerNumber}@s.whatsapp.net`)
+                console.log(`Pairing code: ${code}`)
+            } catch (e) {
+                console.log("Gagal request pairing code:", e.message)
+            }
+        } else {
+            console.log("Pilihan tidak valid, lanjut dengan QR default.")
+        }
+
+        setupMenu(axiom)  // setup panel interaktif
+        panel("Menunggu koneksi...", "Belum Login")
 
         // CONNECTION EVENTS
         axiom.ev.on("connection.update", async (update) => {
             const { qr, connection, lastDisconnect } = update
 
-            if (qr) {
+            if (qr && !deviceLinked) {
                 global.lastQR = qr
-                panel("Scan QR!", "Belum Login")
-                panel("Scan QR!", "Belum Login")
-                panel("Scan QR!", "Belum Login")
+                console.log("\nScan QR ini di WhatsApp:")
                 qrcode.generate(qr, { small: true })
             }
 
             if (connection === "open") {
-                reconnecting = false
-                panel(green("Terhubung ✓"), axiom.user.id.split(":")[0])
+                deviceLinked = true
+                currentDevice = axiom.user.id.split(":")[0]
+                panel(green("Terhubung ✓"), currentDevice)
             }
 
             if (connection === "close") {
                 const code = lastDisconnect?.error?.output?.statusCode
-
                 if (code === 401) {
-                    panel(red("Session Invalid! Menghapus auth..."), "Reset")
-                    try { fs.rmSync("./auth", { recursive: true, force: true }) } catch {}
-                    console.log(red("\n→ Session dihapus. Scan QR lagi.\n"))
+                    console.log(red("Session invalid! Menghapus auth..."))
+                    try { fs.rmSync("./axiomSesi", { recursive: true, force: true }) } catch {}
                     return restartBot()
                 }
-
+                deviceLinked = false
+                currentDevice = "-"
                 if (!reconnecting) {
                     reconnecting = true
                     panel(red("Terputus, reconnect..."), "Reconnect")
@@ -194,36 +75,50 @@ async function startBot() {
 
         axiom.ev.on("creds.update", saveCreds)
 
-        // PESAN MASUK → COMMAND HANDLER
-        axiom.ev.on("messages.upsert", async ({ messages }) => {
-            const msg = messages[0]
-            if (!msg.message) return
-
-            if (!msg.key.fromMe) msgCount++
-
-            const from = msg.key.remoteJid
-            const text =
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text ||
-                ""
-
-            lastLog = `${from} → ${text}`
-            panel("Terhubung ✓", axiom.user.id.split(":")[0])
-
-            // CALL COMMAND HANDLER
-            await commandHandler(axiom, msg, from, text)
-        })
-
-        // ANTI CRASH
-        process.on("uncaughtException", (err) => {
-            errCount++
-            lastLog = red("Error: " + err.message)
-            panel(red("Error!"), "Running")
-        })
-        process.on("unhandledRejection", (err) => {
-            errCount++
-            lastLog = red("Reject: " + err)
-            panel(red("Error!"), "Running")
+        // TERMINAL MENU MODIFIKASI
+        rl.removeAllListeners("line")
+        rl.on("line", async (input) => {
+            switch (input.trim()) {
+                case "1":
+                    console.log(red("\n→ Restarting bot...\n"))
+                    restartBot()
+                    break
+                case "2":
+                    panel("Terhubung ✓", currentDevice)
+                    break
+                case "3":
+                    if (deviceLinked) {
+                        console.log(yellow(`QR/pairing sedang tersambung ke ${currentDevice}, tidak bisa tautkan baru.`))
+                    } else {
+                        console.log(green("Tautkan perangkat baru: pilih QR atau pairing"))
+                        const method = await new Promise(res => {
+                            rl.question("1) QR  2) Pairing: ", res)
+                        })
+                        if (method === "1") {
+                            if (global.lastQR) qrcode.generate(global.lastQR, { small: true })
+                            else console.log(red("Tidak ada QR."))
+                        } else if (method === "2") {
+                            try {
+                                const code = await axiom.requestPairingCode(`${globalOwnerNumber}@s.whatsapp.net`)
+                                console.log("Pairing code:", code)
+                            } catch (e) {
+                                console.log("Gagal request pairing code:", e.message)
+                            }
+                        } else {
+                            console.log(yellow("Pilihan tidak valid."))
+                        }
+                    }
+                    break
+                case "4":
+                    console.log(red("→ Keluar bot"))
+                    process.exit(0)
+                    break
+                case "5":
+                    panel("Terhubung ✓", currentDevice, "-", true)
+                    break
+                default:
+                    console.log(yellow("Perintah tidak dikenal."))
+            }
         })
 
     } catch (e) {
@@ -231,5 +126,3 @@ async function startBot() {
         setTimeout(startBot, 2000)
     }
 }
-
-startBot()
