@@ -5,7 +5,7 @@ const readline = require("readline");
 const fs = require("fs");
 
 // IMPORT COMMAND HANDLER
-const commandHandler = require("./Database/command");
+const commandHandler = require("./database/command");
 
 // GLOBAL STATE
 let startTime = Date.now();
