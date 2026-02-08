@@ -1,5 +1,5 @@
 const fnu = require("../setting.js")
-const nuf = require("../axiom.js")
+const ax = require("../axiom.js")
 const dbFile = "./db.json"
 const ownerAssistant = "chatGPT"
 
