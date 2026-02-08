@@ -50,32 +50,32 @@ function logLast(msg) {
 function panel(status, device, ping = "-", showSource = false) {
   console.clear();
   console.log(`
-┌─────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────┐
 │          ${green("WHATSAPP BOT PANEL ULTRA")}        │
-├─────────────────────────────────────────────┤
+├─────────────────────────────────────────────────┤
 │ Status : ${status}  | Device : ${device}
-│ Uptime : ${formatUptime(Date.now() - startTime)}     | Ping   : ${ping}
-│ CPU    : ${lastCPU} ms     | RAM    : ${getRam()}
-│ Msg In : ${msgCount}            | Errors : ${errCount}
-├─────────────────────────────────────────────┤
+│ Uptime : ${formatUptime(Date.now() - startTime)}     │ Ping   : ${ping}
+│ CPU    : ${lastCPU} ms     │ RAM    : ${getRam()}
+│ Msg In : ${msgCount}            │ Errors : ${errCount}
+├─────────────────────────────────────────────────┤
 │ Menu Interaktif:
 │ 1) Restart Bot
 │ 2) Refresh/Clear Panel
 │ 3) Tampilkan QR Lagi
 │ 4) Keluar/Log out
 │ 5) About / Source
-├─────────────────────────────────────────────┤
+├─────────────────────────────────────────────────┤
 │ Log Terakhir Panel:
 │ ${logs.map(l => yellow(l)).join("\n│ ")}
 ${showSource ? `
-├─────────────────────────────────────────────┤
+├─────────────────────────────────────────────────┤
 │ ${green("Source & Credits")}
 │ Author       : Rangga
 │ Script Writer: ChatGPT
 │ Designer     : Rangga & ChatGPT
 │ Versi Bot    : Ultra Low RAM v2.0
 ` : ""}
-└─────────────────────────────────────────────┘
+└─────────────────────────────────────────────────┘
 `);
 }
 
