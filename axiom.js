@@ -49,42 +49,37 @@ function logLast(msg) {
 // PANEL
 function panel(status, device, ping = "-", showSource = false) {
   console.clear();
-
-  const colLeft = 28;  // kolom kiri lebar tetap
-
-  const L = (label, value) =>
-    `│ ${label.padEnd(10)}: ${String(value).padEnd(colLeft - label.length - 2)}│`;
-
-  const R = (label, value) =>
-    `│ ${label.padEnd(10)}: ${String(value).padStart(15)} │`;
-
   console.log(`
-┌─────────────────────────────────────────────────┐
-│          ${green("WHATSAPP BOT PANEL ULTRA")}    
-├─────────────────────────────────────────────────┤
-${L("Status", status)} ${R("Device", device)}
-${L("Uptime", formatUptime(Date.now() - startTime))} ${R("Ping", ping)}
-${L("CPU", lastCPU + " ms")} ${R("RAM", getRam())}
-${L("Msg In", msgCount)} ${R("Errors", errCount)}
-├─────────────────────────────────────────────────┤
+┌─────────────────────────────────────────────┐
+│          ${green("WHATSAPP BOT PANEL ULTRA")}        │
+├─────────────────────────────────────────────┤
+│ Status : ${status}
+│ Device : ${device}
+│ Uptime : ${formatUptime(Date.now() - startTime)}
+│ CPU    : ${lastCPU} ms
+│ RAM    : ${getRam()}
+│ Ping   : ${ping}
+│ Msg In : ${msgCount}
+│ Errors : ${errCount}
+├─────────────────────────────────────────────┤
 │ Menu Interaktif:
 │ 1) Restart Bot
 │ 2) Refresh/Clear Panel
 │ 3) Tampilkan QR Lagi
 │ 4) Keluar/Log out
 │ 5) About / Source
-├─────────────────────────────────────────────────┤
+├─────────────────────────────────────────────┤
 │ Log Terakhir Panel:
 │ ${logs.map(l => yellow(l)).join("\n│ ")}
 ${showSource ? `
-├─────────────────────────────────────────────────┤
+├─────────────────────────────────────────────┤
 │ ${green("Source & Credits")}
 │ Author       : Rangga
 │ Script Writer: ChatGPT
 │ Designer     : Rangga & ChatGPT
 │ Versi Bot    : Ultra Low RAM v2.0
 ` : ""}
-└─────────────────────────────────────────────────┘
+└─────────────────────────────────────────────┘
 `);
 }
 
