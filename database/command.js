@@ -1,24 +1,18 @@
-const fun = require("./functions")
+const fun = require("./functions");
 
 async function commandHandler(axiom, msg, from, text) {
+  const cmd = text.toLowerCase();
+  if (cmd === "ping") {
+    return axiom.sendMessage(from, { text: "pong!" });
+  }
 
-    const cmd = text.toLowerCase()
+  if (cmd === "menu" || cmd === "!menu") {
+    return axiom.sendMessage(from, { text: fun.menuText() });
+  }
 
-    // ----- PING -----
-    if (cmd === "ping") {
-        return axiom.sendMessage(from, { text: "pong!" })
-    }
-
-    // ----- MENU -----
-    if (cmd === "menu" || cmd === "!menu") {
-        return axiom.sendMessage(from, { text: fun.menuText() })
-    }
-
-    // ----- BOT INFO -----
-    if (cmd === "botinfo" || cmd === "!botinfo") {
-        return axiom.sendMessage(from, { text: fun.botInfo() })
-    }
-
+  if (cmd === "botinfo" || cmd === "!botinfo") {
+    return axiom.sendMessage(from, { text: fun.botInfo() });
+  }
 }
 
-module.exports = commandHandler
+module.exports = commandHandler;
