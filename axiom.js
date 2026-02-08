@@ -1,3 +1,4 @@
+// axiom.js
 const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const qrcode = require("qrcode-terminal");
 const Pino = require("pino");
@@ -11,7 +12,8 @@ const commandHandler = require("./database/command");
 let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
-let logs = []; // log terakhir 4
+let logs = [];             // 4 log terakhir untuk panel
+let consoleLogLast = "";   // 1 log terakhir konsol
 let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
@@ -39,9 +41,12 @@ function green(t) { return `\x1b[32m${t}\x1b[0m`; }
 function red(t) { return `\x1b[31m${t}\x1b[0m`; }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m`; }
 
+// LOGGING
 function logLast(msg) {
   logs.push(msg);
   if (logs.length > 4) logs.shift();
+
+  consoleLogLast = msg;
   console.log(msg);
 }
 
@@ -68,8 +73,11 @@ function panel(status, device, ping = "-", showSource = false) {
 │ 4) Keluar/Log out
 │ 5) About / Source
 ├─────────────────────────────────────────────┤
-│ Log Terakhir:
+│ Log Terakhir Panel:
 │ ${logs.map(l => yellow(l)).join("\n│ ")}
+├─────────────────────────────────────────────┤
+│ Log Konsol Terakhir:
+│ ${yellow(consoleLogLast)}
 ${showSource ? `
 ├─────────────────────────────────────────────┤
 │ ${green("Source & Credits")}
@@ -119,6 +127,7 @@ function restartBot() {
   msgCount = 0;
   errCount = 0;
   logs = [];
+  consoleLogLast = "";
   reconnecting = false;
 
   delete require.cache[require.resolve("./axiom.js")];
@@ -201,7 +210,7 @@ async function startBot() {
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
       try {
-        await commandHandler(axiom, msg, fromJid, text); // JID lengkap dipakai
+        await commandHandler(axiom, msg, fromJid, text); // gunakan JID lengkap untuk command
       } catch (e) {
         errCount++;
         logLast(red("Command error: " + e.message));
@@ -228,3 +237,7 @@ async function startBot() {
 }
 
 startBot();
+
+module.exports = {
+  logLast
+};
