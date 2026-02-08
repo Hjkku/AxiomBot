@@ -12,8 +12,8 @@ const commandHandler = require("./database/command");
 let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
-let logs = [];             // 4 log terakhir panel
-let consoleLogLast = "";   // log konsol terakhir
+let logs = [];             // 4 log terakhir untuk panel
+let consoleLogLast = "";   // 1 log terakhir konsol
 let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
@@ -35,6 +35,7 @@ function formatUptime(ms) {
   m %= 60;
   return `${h}h ${m}m ${s}s`;
 }
+
 function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"; }
 function green(t) { return `\x1b[32m${t}\x1b[0m`; }
 function red(t) { return `\x1b[31m${t}\x1b[0m`; }
@@ -199,30 +200,17 @@ async function startBot() {
       if (!msg.key.fromMe) msgCount++;
 
       const fromJid = msg.key.remoteJid;
-      let senderNum;
-
-      if (msg.key.fromMe) {
-        senderNum = "BOT";
-      } else if (fromJid.endsWith("@g.us")) {
-        // Grup → pakai participant
-        senderNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
-      } else {
-        // Private chat → tampil nomor WA user
-        senderNum = msg.key.participant
-          ? msg.key.participant.split("@")[0]
-          : fromJid.split("@")[0];
-      }
-
+      const fromNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
       const text =
         msg.message.conversation ||
         msg.message.extendedTextMessage?.text ||
         "";
 
-      logLast(`${senderNum} → ${text}`);
+      logLast(`${fromNum} → ${text}`);
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
       try {
-        await commandHandler(axiom, msg, fromJid, text); // tetap pakai JID lengkap
+        await commandHandler(axiom, msg, fromJid, text); // gunakan JID lengkap untuk command
       } catch (e) {
         errCount++;
         logLast(red("Command error: " + e.message));
