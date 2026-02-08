@@ -54,8 +54,8 @@ function panel(status, device, ping = "-", showSource = false) {
 │          ${green("WHATSAPP BOT PANEL ULTRA")}        │
 ├─────────────────────────────────────────────┤
 │ Status : ${status}  | Device : ${device}
-│ Uptime : ${formatUptime(Date.now() - startTime)} |    Ping   : ${ping}
-│ CPU    : ${lastCPU} ms      | RAM    : ${getRam()}
+│ Uptime : ${formatUptime(Date.now() - startTime)}     | Ping   : ${ping}
+│ CPU    : ${lastCPU} ms     | RAM    : ${getRam()}
 │ Msg In : ${msgCount}            | Errors : ${errCount}
 ├─────────────────────────────────────────────┤
 │ Menu Interaktif:
