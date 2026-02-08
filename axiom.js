@@ -17,16 +17,14 @@ let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
 
-// ANTI-SPAM STATE
-const spamMap = new Map(); // {userId: {count, lastTime}}
-const SPAM_LIMIT = 5;       // maksimal pesan dalam interval
-const SPAM_INTERVAL = 5000; // 5 detik
+// ANTI-SPAM SETTINGS
+const SPAM_LIMIT = 5;           // Max pesan per interval
+const SPAM_INTERVAL = 5000;     // Interval ms
+const spamMap = new Map();
 
-// ANTI-LINK WHITELIST
-const allowedLinks = [
-  "https://vt.tiktok.com/", // contoh link TikTok VT
-  "https://example.com/download"
-];
+// ANTI-LINK SETTINGS
+const allowedLinks = []; // Boleh tambahkan prefix link yang diperbolehkan
+const linkRegex = /(https?:\/\/[^\s]+)|(wa\.me\/[0-9]+)|(t\.me\/[^\s]+)/gi;
 
 // CPU USAGE LIGHT
 let lastCPUTime = process.cpuUsage();
@@ -116,52 +114,52 @@ function restartBot() {
   errCount = 0;
   logs = [];
   reconnecting = false;
+  spamMap.clear();
 
   delete require.cache[require.resolve("./axiom.js")];
+
   process.removeAllListeners("uncaughtException");
   process.removeAllListeners("unhandledRejection");
+
   startBot();
 }
 
 // START BOT
 async function startBot() {
   try {
-    if (global.axiom) {
-      try { global.axiom.end?.(); } catch {}
-      try { global.axiom.ws?.close?.(); } catch {}
-    }
+    if (global.axiom) { try { global.axiom.end?.(); } catch {} try { global.axiom.ws?.close?.(); } catch {} }
 
     const { state, saveCreds } = await useMultiFileAuthState("./axiomSesi");
     const { version } = await fetchLatestBaileysVersion();
 
     const axiom = makeWASocket({ version, auth: state, logger: Pino({ level: "silent" }) });
     global.axiom = axiom;
+
     setupMenu(axiom);
     panel("Menunggu QR...", "Belum Login");
 
-    // CONNECTION UPDATE
-    axiom.ev.on("connection.update", async (update) => {
-      const { qr, connection, lastDisconnect } = update;
+    // CONNECTION
+    axiom.ev.on("connection.update", ({ qr, connection, lastDisconnect }) => {
       if (qr) { global.lastQR = qr; panel("Scan QR!", "Belum Login"); qrcode.generate(qr, { small: true }); }
       if (connection === "open") { reconnecting = false; panel(green("Terhubung ✓"), axiom.user.id.split(":")[0]); }
       if (connection === "close") {
         const code = lastDisconnect?.error?.output?.statusCode;
-        if (code === 401) { panel(red("Session Invalid! Menghapus auth..."), "Reset"); try { fs.rmSync("./auth", { recursive: true, force: true }); } catch {} logLast(red("→ Session dihapus. Scan QR lagi.")); return restartBot(); }
+        if (code === 401) { panel(red("Session Invalid! Menghapus auth..."), "Reset"); try { fs.rmSync("./auth", { recursive: true, force: true }); } catch {} console.log(red("\n→ Session dihapus. Scan QR lagi.\n")); return restartBot(); }
         if (!reconnecting) { reconnecting = true; panel(red("Terputus, reconnect..."), "Reconnect"); setTimeout(() => startBot(), 2500); }
       }
     });
 
     axiom.ev.on("creds.update", saveCreds);
 
-    // PESAN MASUK → COMMAND HANDLER + ANTI-SPAM + ANTI-LINK
+    // PESAN MASUK → COMMAND + ANTI-SPAM & ANTI-LINK
     axiom.ev.on("messages.upsert", async ({ messages }) => {
       const msg = messages[0];
       if (!msg.message) return;
+
       if (!msg.key.fromMe) msgCount++;
 
       const fromJid = msg.key.remoteJid;
       let senderNum;
-
       if (msg.key.fromMe) senderNum = "BOT";
       else if (fromJid.endsWith("@g.us")) senderNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
       else senderNum = msg.key.participant ? msg.key.participant.split("@")[0] : fromJid.split("@")[0];
@@ -169,54 +167,47 @@ async function startBot() {
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
       // ANTI-SPAM
-      const now = Date.now();
-      if (!spamMap.has(senderNum)) spamMap.set(senderNum, { count: 1, lastTime: now });
-      else {
-        const data = spamMap.get(senderNum);
-        if (now - data.lastTime < SPAM_INTERVAL) data.count++;
-        else data.count = 1;
-        data.lastTime = now;
-        spamMap.set(senderNum, data);
-        if (data.count > SPAM_LIMIT) {
-          logLast(`${senderNum} → SPAM terdeteksi!`);
-          await axiom.sendMessage(fromJid, { text: "🚫 Kamu terlalu sering mengirim pesan!" });
-          return;
+      if (!msg.key.fromMe) {
+        const now = Date.now();
+        if (!spamMap.has(senderNum)) spamMap.set(senderNum, { count: 1, lastTime: now });
+        else {
+          const data = spamMap.get(senderNum);
+          if (now - data.lastTime < SPAM_INTERVAL) data.count++;
+          else data.count = 1;
+          data.lastTime = now;
+          spamMap.set(senderNum, data);
+          if (data.count > SPAM_LIMIT) {
+            logLast(`${senderNum} → SPAM terdeteksi!`);
+            await axiom.sendMessage(fromJid, { text: "🚫 Kamu terlalu sering mengirim pesan!" });
+            return;
+          }
+        }
+
+        // ANTI-LINK
+        const linksFound = text.match(linkRegex);
+        if (linksFound) {
+          const blocked = linksFound.some(link => !allowedLinks.some(allow => link.startsWith(allow)));
+          if (blocked) {
+            logLast(`${senderNum} → Link tidak diperbolehkan!`);
+            await axiom.sendMessage(fromJid, { text: "🚫 Link tidak diperbolehkan!" });
+            return;
+          }
         }
       }
 
-      // ANTI-LINK
-      const linkRegex = /(https?:\/\/[^\s]+)|(wa\.me\/[0-9]+)|(t\.me\/[^\s]+)/gi;
-      const linksFound = text.match(linkRegex);
-      if (linksFound) {
-        const blocked = linksFound.some(link => !allowedLinks.some(allow => link.startsWith(allow)));
-        if (blocked) {
-          logLast(`${senderNum} → Link tidak diperbolehkan!`);
-          await axiom.sendMessage(fromJid, { text: "🚫 Link tidak diperbolehkan!" });
-          return;
-        }
-      }
-
+      // LOG DAN COMMAND HANDLER
       logLast(`${senderNum} → ${text}`);
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
-      // COMMAND HANDLER
-      try {
-        await commandHandler(axiom, msg, fromJid, text);
-      } catch (e) {
-        errCount++;
-        logLast(red("Command error: " + e.message));
-        panel(red("Error!"), "Running");
-      }
+      try { await commandHandler(axiom, msg, fromJid, text); }
+      catch (e) { errCount++; logLast(red("Command error: " + e.message)); panel(red("Error!"), "Running"); }
     });
 
-    // ANTI-CRASH
+    // ANTI CRASH
     process.on("uncaughtException", (err) => { errCount++; logLast(red("Error: " + err.message)); panel(red("Error!"), "Running"); });
     process.on("unhandledRejection", (err) => { errCount++; logLast(red("Reject: " + err)); panel(red("Error!"), "Running"); });
 
-  } catch (e) {
-    console.log(red("Startup Error:"), e);
-    setTimeout(startBot, 2000);
-  }
+  } catch (e) { console.log(red("Startup Error:"), e); setTimeout(startBot, 2000); }
 }
 
 startBot();
