@@ -1,5 +1,5 @@
 // axiom.js
-const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
+const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, delay } = require("@whiskeysockets/baileys");
 const qrcode = require("qrcode-terminal");
 const Pino = require("pino");
 const readline = require("readline");
@@ -12,16 +12,16 @@ const commandHandler = require("./database/command");
 let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
-let logs = []; // 4 log terakhir untuk panel
+let logs = [];
 let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
 
-// CACHE USER MESSAGE KEY UNTUK ANTI-SPAM/ANTI-LINK
-const userMessages = {}; // { nomorUser: [msgKey1, msgKey2,...] }
-const SPAM_LIMIT = 5; // batas pesan untuk spam
+// CACHE USER MESSAGE KEY UNTUK ANTI-SPAM
+const userMessages = {}; 
+const SPAM_LIMIT = 5; 
 
-// CPU USAGE LIGHT
+// CPU USAGE MONITOR
 let lastCPUTime = process.cpuUsage();
 setInterval(() => {
   const now = process.cpuUsage();
@@ -29,13 +29,12 @@ setInterval(() => {
   lastCPUTime = now;
 }, 1000);
 
-// HELPERS PANEL
+// HELPERS
 function formatUptime(ms) {
   let s = Math.floor(ms / 1000);
   let m = Math.floor(s / 60);
   let h = Math.floor(m / 60);
-  s %= 60;
-  m %= 60;
+  s %= 60; m %= 60;
   return `${h}h ${m}m ${s}s`;
 }
 function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"; }
@@ -43,15 +42,13 @@ function green(t) { return `\x1b[32m${t}\x1b[0m`; }
 function red(t) { return `\x1b[31m${t}\x1b[0m`; }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m`; }
 
-// LOGGING
 function logLast(msg) {
   logs.push(msg);
   if (logs.length > 4) logs.shift();
   console.log(msg);
 }
 
-// PANEL
-function panel(status, device, ping = "-", showSource = false) {
+function panel(status, device) {
   console.clear();
   console.log(`
 ┌─────────────────────────────────────────────┐
@@ -60,88 +57,17 @@ function panel(status, device, ping = "-", showSource = false) {
 │ Status : ${status}
 │ Device : ${device}
 │ Uptime : ${formatUptime(Date.now() - startTime)}
-│ CPU    : ${lastCPU} ms
-│ RAM    : ${getRam()}
-│ Ping   : ${ping}
-│ Msg In : ${msgCount}
-│ Errors : ${errCount}
+│ RAM    : ${getRam()} | CPU : ${lastCPU} ms
+│ Msg In : ${msgCount} | Errors : ${errCount}
 ├─────────────────────────────────────────────┤
-│ Menu Interaktif:
-│ 1) Restart Bot
-│ 2) Refresh/Clear Panel
-│ 3) Tampilkan QR Lagi
-│ 4) Keluar/Log out
-│ 5) About / Source
-├─────────────────────────────────────────────┤
-│ Log Terakhir Panel:
+│ Log Terakhir:
 │ ${logs.map(l => yellow(l)).join("\n│ ")}
-${showSource ? `
-├─────────────────────────────────────────────┤
-│ ${green("Source & Credits")}
-│ Author       : Rangga
-│ Script Writer: ChatGPT
-│ Designer     : Rangga & ChatGPT
-│ Versi Bot    : Ultra Low RAM v2.0
-` : ""}
 └─────────────────────────────────────────────┘
 `);
 }
 
-// TERMINAL MENU
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-function setupMenu(axiom) {
-  rl.removeAllListeners("line");
-  rl.on("line", async (input) => {
-    switch (input.trim()) {
-      case "1":
-        console.log(red("\n→ Restarting bot...\n"));
-        restartBot();
-        break;
-      case "2":
-        panel("Terhubung ✓", axiom?.user?.id?.split(":")[0] || "-");
-        break;
-      case "3":
-        if (global.lastQR) qrcode.generate(global.lastQR, { small: true });
-        else console.log(red("Tidak ada QR."));
-        break;
-      case "4":
-        console.log(red("→ Keluar bot"));
-        process.exit(0);
-        break;
-      case "5":
-        panel("Terhubung ✓", axiom?.user?.id?.split(":")[0] || "-", "-", true);
-        break;
-      default:
-        console.log(yellow("Perintah tidak dikenal."));
-    }
-  });
-}
-
-// INTERNAL RESTART
-function restartBot() {
-  startTime = Date.now();
-  msgCount = 0;
-  errCount = 0;
-  logs = [];
-  reconnecting = false;
-
-  delete require.cache[require.resolve("./axiom.js")];
-
-  process.removeAllListeners("uncaughtException");
-  process.removeAllListeners("unhandledRejection");
-
-  startBot();
-}
-
-// START BOT
 async function startBot() {
   try {
-    if (global.axiom) {
-      try { global.axiom.end?.(); } catch {}
-      try { global.axiom.ws?.close?.(); } catch {}
-    }
-
     const { state, saveCreds } = await useMultiFileAuthState("./axiomSesi");
     const { version } = await fetchLatestBaileysVersion();
 
@@ -149,89 +75,79 @@ async function startBot() {
       version,
       auth: state,
       logger: Pino({ level: "silent" }),
+      printQRInTerminal: false
     });
 
     global.axiom = axiom;
-    setupMenu(axiom);
-    panel("Menunggu QR...", "Belum Login");
 
     axiom.ev.on("connection.update", async (update) => {
       const { qr, connection, lastDisconnect } = update;
-
-      if (qr) {
-        global.lastQR = qr;
-        panel("Scan QR!", "Belum Login");
-        qrcode.generate(qr, { small: true });
-      }
-
+      if (qr) qrcode.generate(qr, { small: true });
       if (connection === "open") {
         reconnecting = false;
         panel(green("Terhubung ✓"), axiom.user.id.split(":")[0]);
       }
-
       if (connection === "close") {
-        const code = lastDisconnect?.error?.output?.statusCode;
-        if (code === 401) {
-          panel(red("Session Invalid! Menghapus auth..."), "Reset");
-          try { fs.rmSync("./auth", { recursive: true, force: true }); } catch {}
-          console.log(red("\n→ Session dihapus. Scan QR lagi.\n"));
-          return restartBot();
-        }
-
         if (!reconnecting) {
           reconnecting = true;
-          panel(red("Terputus, reconnect..."), "Reconnect");
-          setTimeout(() => startBot(), 2500);
+          setTimeout(() => startBot(), 3000);
         }
       }
     });
 
     axiom.ev.on("creds.update", saveCreds);
 
-    // PESAN MASUK → COMMAND HANDLER + ANTI-SPAM/ANTI-LINK
     axiom.ev.on("messages.upsert", async ({ messages }) => {
       const msg = messages[0];
-      if (!msg.message) return;
-
-      if (!msg.key.fromMe) msgCount++;
+      if (!msg.message || msg.key.remoteJid === 'status@broadcast') return;
 
       const fromJid = msg.key.remoteJid;
-      let senderNum;
+      const senderNum = msg.key.participant || fromJid;
+      const isMe = msg.key.fromMe;
 
-      if (msg.key.fromMe) senderNum = "BOT";
-      else if (fromJid.endsWith("@g.us")) {
-        senderNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
-      } else {
-        senderNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
-      }
+      if (!isMe) msgCount++;
 
-      const text =
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        "";
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
-      // SIMPAN KEY PESAN USER
-      if (!userMessages[senderNum]) userMessages[senderNum] = [];
-      userMessages[senderNum].push(msg.key);
+      // --- LOGIKA ANTI-LINK & ANTI-SPAM ---
+      if (!isMe) {
+        if (!userMessages[senderNum]) userMessages[senderNum] = [];
+        userMessages[senderNum].push(msg.key);
 
-      // CEK LINK / SPAM
-      const hasLink = /https?:\/\//i.test(text);
-      const isSpam = userMessages[senderNum].length > SPAM_LIMIT;
+        const hasLink = /https?:\/\//i.test(text);
+        const isSpam = userMessages[senderNum].length > SPAM_LIMIT;
 
-      if (hasLink || isSpam) {
-        for (const key of userMessages[senderNum]) {
+        if (hasLink || isSpam) {
+          logLast(red(`!! Membersihkan ${hasLink ? 'Link' : 'Spam'} dari ${senderNum.split('@')[0]}`));
+
+          // 1. HAPUS DARI TAMPILAN BOT (CHAT MODIFY)
+          // Ini yang membuat link/spam hilang dari layar WA Bot
           try {
-            await axiom.sendMessage(fromJid, { protocolMessage: { key, type: 0 } });
+            await axiom.chatModify({
+              clear: {
+                messages: [{ 
+                  id: msg.key.id, 
+                  fromMe: false, 
+                  timestamp: msg.messageTimestamp 
+                }]
+              }
+            }, fromJid);
+          } catch (e) {
+            logLast(red("Gagal clear tampilan: " + e.message));
+          }
+
+          // 2. ATTEMPT DELETE FOR EVERYONE (Hanya bekerja jika bot admin di grup)
+          try {
+            await axiom.sendMessage(fromJid, { delete: msg.key });
           } catch {}
+
+          // Bersihkan cache spam user
+          userMessages[senderNum] = [];
+          return; // Stop agar tidak masuk ke command handler
         }
-        userMessages[senderNum] = []; // reset cache
-        logLast(`${senderNum} → Pesan spam/link diblokir & dihapus semua`);
-        panel("Terhubung ✓", axiom.user.id.split(":")[0]);
-        return;
       }
 
-      // LOG PANEL
-      logLast(`${senderNum} → ${text}`);
+      logLast(`${senderNum.split('@')[0]} → ${text.substring(0, 15)}...`);
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
       // JALANKAN COMMAND HANDLER
@@ -239,29 +155,22 @@ async function startBot() {
         await commandHandler(axiom, msg, fromJid, text);
       } catch (e) {
         errCount++;
-        logLast(red("Command error: " + e.message));
-        panel(red("Error!"), "Running");
+        logLast(red("Cmd Error: " + e.message));
       }
     });
 
-    // ANTI CRASH
-    process.on("uncaughtException", (err) => {
-      errCount++;
-      logLast(red("Error: " + err.message));
-      panel(red("Error!"), "Running");
-    });
-    process.on("unhandledRejection", (err) => {
-      errCount++;
-      logLast(red("Reject: " + err));
-      panel(red("Error!"), "Running");
-    });
+    // Reset berkala cache spam setiap 2 menit agar RAM aman
+    setInterval(() => {
+        for (let user in userMessages) userMessages[user] = [];
+    }, 2 * 60 * 1000);
 
   } catch (e) {
     console.log(red("Startup Error:"), e);
-    setTimeout(startBot, 2000);
+    setTimeout(startBot, 5000);
   }
 }
 
-startBot();
+process.on("uncaughtException", (err) => { console.error(err); });
+process.on("unhandledRejection", (err) => { console.error(err); });
 
-module.exports = { logLast };
+startBot();
