@@ -12,7 +12,7 @@ const commandHandler = require("./database/command");
 let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
-let logs = [];             // 4 log terakhir untuk panel
+let logs = [];             // 4 log terakhir panel
 let consoleLogLast = "";   // 1 log terakhir konsol
 let lastCPU = 0;
 let reconnecting = false;
@@ -159,7 +159,6 @@ async function startBot() {
     setupMenu(axiom);
     panel("Menunggu QR...", "Belum Login");
 
-    // CONNECTION UPDATE
     axiom.ev.on("connection.update", async (update) => {
       const { qr, connection, lastDisconnect } = update;
 
@@ -200,17 +199,24 @@ async function startBot() {
 
       if (!msg.key.fromMe) msgCount++;
 
-      // Ambil nomor WA user asli
+      // --- Tentukan sender (private vs grup) ---
       let senderNum;
       if (msg.key.fromMe) {
         senderNum = "BOT";
-      } else if (msg.key.participant) {
-        senderNum = msg.key.participant.split("@")[0]; // grup
+      } else if (msg.key.remoteJid.endsWith("@s.whatsapp.net")) {
+        // chat pribadi
+        senderNum = msg.key.remoteJid.split("@")[0]; // nomor WA user
+      } else if (msg.key.remoteJid.endsWith("@g.us")) {
+        // chat grup
+        senderNum = msg.key.participant?.split("@")[0] || msg.key.remoteJid.split("@")[0];
       } else {
-        senderNum = msg.key.remoteJid.split("@")[0]; // chat pribadi
+        senderNum = msg.key.remoteJid;
       }
 
-      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+      const text =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        "";
 
       logLast(`${senderNum} → ${text}`);
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
@@ -244,6 +250,4 @@ async function startBot() {
 
 startBot();
 
-module.exports = {
-  logLast
-};
+module.exports = { logLast };
