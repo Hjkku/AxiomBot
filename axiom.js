@@ -12,40 +12,54 @@ const commandHandler = require("./database/command");
 let startTime = Date.now();
 let msgCount = 0;
 let errCount = 0;
-let lastLogs = []; // simpan 4 log terakhir
+let lastLog = [];
+let lastConsoleLog = [];
 let lastCPU = 0;
 let reconnecting = false;
 global.axiom = null;
-let connectedDevice = null; // track device yang nyambung
+global.pairedDevices = {}; // nomor: status pairing
 
 // CPU USAGE LIGHT
 let lastCPUTime = process.cpuUsage();
 setInterval(() => {
-    const now = process.cpuUsage();
-    lastCPU = ((now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000).toFixed(1);
-    lastCPUTime = now;
+  const now = process.cpuUsage();
+  lastCPU = ((now.user - lastCPUTime.user + now.system - lastCPUTime.system) / 1000).toFixed(1);
+  lastCPUTime = now;
 }, 1000);
 
 // HELPERS PANEL
 function formatUptime(ms) {
-    let s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
-    s %= 60; m %= 60;
-    return `${h}h ${m}m ${s}s`;
+  let s = Math.floor(ms / 1000);
+  let m = Math.floor(s / 60);
+  let h = Math.floor(m / 60);
+  s %= 60;
+  m %= 60;
+  return `${h}h ${m}m ${s}s`;
 }
-function getRam() { return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB"; }
+function getRam() {
+  return (process.memoryUsage().rss / 1024 / 1024).toFixed(1) + " MB";
+}
 function green(t) { return `\x1b[32m${t}\x1b[0m`; }
 function red(t) { return `\x1b[31m${t}\x1b[0m`; }
 function yellow(t) { return `\x1b[33m${t}\x1b[0m`; }
 
+function logLast(msg) {
+  lastLog.push(msg);
+  if (lastLog.length > 4) lastLog.shift();
+
+  lastConsoleLog.push(msg);
+  if (lastConsoleLog.length > 4) lastConsoleLog.shift();
+}
+
 // PANEL
-function panel(status, device, ping = "-") {
-    console.clear();
-    console.log(`
+function panel(status, device, ping = "-", showSource = false) {
+  console.clear();
+  console.log(`
 ┌─────────────────────────────────────────────┐
 │          ${green("WHATSAPP BOT PANEL ULTRA")}        │
 ├─────────────────────────────────────────────┤
 │ Status : ${status}
-│ Device : ${device || "-"}
+│ Device : ${device}
 │ Uptime : ${formatUptime(Date.now() - startTime)}
 │ CPU    : ${lastCPU} ms
 │ RAM    : ${getRam()}
@@ -56,176 +70,193 @@ function panel(status, device, ping = "-") {
 │ Menu Interaktif:
 │ 1) Restart Bot
 │ 2) Refresh/Clear Panel
-│ 3) QR / Pairing
+│ 3) Tampilkan QR / Pairing
 │ 4) Keluar/Log out
 │ 5) About / Source
 ├─────────────────────────────────────────────┤
 │ Log Terakhir:
-│ ${lastLogs.slice(-4).map(l => yellow(l)).join("\n│ ")}
+│ ${lastLog.map(l => yellow(l)).join("\n│ ")}
+│ Konsol Terakhir:
+│ ${lastConsoleLog.map(l => yellow(l)).join("\n│ ")}
+${showSource ? `
+├─────────────────────────────────────────────┤
+│ ${green("Source & Credits")}
+│ Author       : Rangga
+│ Script Writer: ChatGPT
+│ Designer     : Rangga & ChatGPT
+│ Versi Bot    : Ultra Low RAM v2.0
+` : ""}
 └─────────────────────────────────────────────┘
 `);
 }
 
-// LOG LAST MESSAGE
-function pushLog(msg) {
-    lastLogs.push(msg);
-    if (lastLogs.length > 50) lastLogs.shift(); // max 50 logs
-}
-
 // TERMINAL MENU
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
 function setupMenu(axiom) {
-    rl.removeAllListeners("line");
-    rl.on("line", async (input) => {
-        switch (input.trim()) {
-            case "1":
-                console.log(red("\n→ Restarting bot...\n"));
-                restartBot();
-                break;
-            case "2":
-                panel("Terhubung ✓", connectedDevice);
-                break;
-            case "3":
-                if (connectedDevice) {
-                    console.log(red(`QR/Pairing sedang tersambung ke ${connectedDevice}, tidak bisa membuat tautan baru.`));
-                    break;
+  rl.removeAllListeners("line");
+  rl.on("line", async (input) => {
+    switch (input.trim()) {
+      case "1":
+        console.log(red("\n→ Restarting bot...\n"));
+        restartBot();
+        break;
+      case "2":
+        panel("Terhubung ✓", axiom?.user?.id?.split(":")[0] || "-");
+        break;
+      case "3":
+        if (!axiom) return console.log(red("Bot belum ready."));
+        if (axiom.user) {
+          // Device sudah terhubung
+          console.log(green(`Device sedang tersambung: ${axiom.user.id.split(":")[0]}`));
+          rl.question("Ingin menampilkan QR atau Pairing baru? (qr/pairing): ", async (opt) => {
+            if (opt.toLowerCase() === "qr") {
+              if (global.lastQR) qrcode.generate(global.lastQR, { small: true });
+              else console.log(red("Tidak ada QR saat ini."));
+            } else if (opt.toLowerCase() === "pairing") {
+              rl.question("Masukkan nomor device (contoh 628xxx): ", async (num) => {
+                if (!num) return console.log(red("Nomor kosong."));
+                if (global.pairedDevices[num]) return console.log(red(`Nomor ${num} sudah pairing atau sedang tersambung.`));
+                try {
+                  const code = await axiom.requestPairingCode(num + "@s.whatsapp.net");
+                  console.log(green(`Pairing code untuk ${num}: ${code}`));
+                  global.pairedDevices[num] = true;
+                } catch (e) {
+                  console.log(red("Gagal request pairing code:"), e.message);
                 }
-                console.log(yellow("Pilih metode: 1) QR  2) Pairing"));
-                rl.question("Metode: ", async (ans) => {
-                    if (ans === "1") {
-                        if (global.lastQR) qrcode.generate(global.lastQR, { small: true });
-                        else console.log(red("Tidak ada QR saat ini."));
-                    } else if (ans === "2") {
-                        rl.question("Masukkan nomor device contoh 62xxxx: ", async (number) => {
-                            try {
-                                const code = await axiom.requestPairingCode(number + "@s.whatsapp.net");
-                                console.log(green(`Pairing code: ${code}`));
-                                pushLog(`Pairing code dikirim untuk ${number}`);
-                            } catch (e) {
-                                console.log(red("Gagal request pairing:"), e.message);
-                                pushLog(`Error pairing ${e.message}`);
-                            }
-                        });
-                    } else console.log(red("Pilihan tidak valid."));
-                });
-                break;
-            case "4":
-                console.log(red("→ Keluar bot"));
-                process.exit(0);
-                break;
-            case "5":
-                panel("Terhubung ✓", connectedDevice);
-                break;
-            default:
-                console.log(yellow("Perintah tidak dikenal."));
+              });
+            } else console.log(red("Pilihan tidak dikenal."));
+          });
+        } else {
+          console.log(red("Bot belum login, tunggu QR scan."));
         }
-    });
+        break;
+      case "4":
+        console.log(red("→ Keluar bot"));
+        process.exit(0);
+        break;
+      case "5":
+        panel("Terhubung ✓", axiom?.user?.id?.split(":")[0] || "-", "-", true);
+        break;
+      default:
+        console.log(yellow("Perintah tidak dikenal."));
+    }
+  });
 }
 
-// RESTART
+// INTERNAL RESTART
 function restartBot() {
-    startTime = Date.now();
-    msgCount = 0;
-    errCount = 0;
-    lastLogs = [];
-    reconnecting = false;
-    connectedDevice = null;
+  startTime = Date.now();
+  msgCount = 0;
+  errCount = 0;
+  lastLog = [];
+  lastConsoleLog = [];
+  reconnecting = false;
 
-    delete require.cache[require.resolve("./axiom.js")];
-    process.removeAllListeners("uncaughtException");
-    process.removeAllListeners("unhandledRejection");
+  delete require.cache[require.resolve("./axiom.js")];
 
-    startBot();
+  process.removeAllListeners("uncaughtException");
+  process.removeAllListeners("unhandledRejection");
+
+  startBot();
 }
 
 // START BOT
 async function startBot() {
-    try {
-        if (global.axiom) {
-            try { global.axiom.end?.() } catch {}
-            try { global.axiom.ws?.close?.() } catch {}
+  try {
+    if (global.axiom) {
+      try { global.axiom.end?.(); } catch {}
+      try { global.axiom.ws?.close?.(); } catch {}
+    }
+
+    const { state, saveCreds } = await useMultiFileAuthState("./axiomSesi");
+    const { version } = await fetchLatestBaileysVersion();
+
+    const axiom = makeWASocket({
+      version,
+      auth: state,
+      logger: Pino({ level: "silent" })
+    });
+
+    global.axiom = axiom;
+    setupMenu(axiom);
+    panel("Menunggu QR...", "Belum Login");
+
+    axiom.ev.on("connection.update", async (update) => {
+      const { qr, connection, lastDisconnect } = update;
+
+      if (qr) {
+        global.lastQR = qr;
+        logLast(`QR diterima`);
+        panel("Scan QR!", "Belum Login");
+        qrcode.generate(qr, { small: true });
+      }
+
+      if (connection === "open") {
+        reconnecting = false;
+        panel(green("Terhubung ✓"), axiom.user.id.split(":")[0]);
+        logLast(`Device connected: ${axiom.user.id.split(":")[0]}`);
+      }
+
+      if (connection === "close") {
+        const code = lastDisconnect?.error?.output?.statusCode;
+        logLast(`Connection closed: ${code || "Unknown"}`);
+
+        if (code === 401) {
+          panel(red("Session Invalid! Menghapus auth..."), "Reset");
+          try { fs.rmSync("./auth", { recursive: true, force: true }); } catch {}
+          console.log(red("\n→ Session dihapus. Scan QR lagi.\n"));
+          return restartBot();
         }
 
-        const { state, saveCreds } = await useMultiFileAuthState("./axiomSesi");
-        const { version } = await fetchLatestBaileysVersion();
+        if (!reconnecting) {
+          reconnecting = true;
+          panel(red("Terputus, reconnect..."), "Reconnect");
+          setTimeout(() => startBot(), 2500);
+        }
+      }
+    });
 
-        const axiom = makeWASocket({ version, auth: state, logger: Pino({ level: "silent" }) });
-        global.axiom = axiom;
-        setupMenu(axiom);
-        panel("Menunggu QR...", connectedDevice);
+    axiom.ev.on("creds.update", saveCreds);
 
-        // CONNECTION UPDATE
-        axiom.ev.on("connection.update", async (update) => {
-            const { qr, connection, lastDisconnect } = update;
+    // PESAN MASUK → COMMAND HANDLER
+    axiom.ev.on("messages.upsert", async ({ messages }) => {
+      const msg = messages[0];
+      if (!msg.message) return;
 
-            if (qr) {
-                global.lastQR = qr;
-                panel("Scan QR!", connectedDevice);
-                qrcode.generate(qr, { small: true });
-                pushLog("QR code diterima");
-            }
+      if (!msg.key.fromMe) msgCount++;
 
-            if (connection === "open") {
-                reconnecting = false;
-                connectedDevice = axiom.user.id.split(":")[0];
-                panel(green("Terhubung ✓"), connectedDevice);
-                pushLog(`Device terhubung: ${connectedDevice}`);
-            }
+      const from = msg.key.remoteJid;
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+      logLast(`${from} → ${text}`);
+      panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
-            if (connection === "close") {
-                const code = lastDisconnect?.error?.output?.statusCode;
-                pushLog(`Connection close, code: ${code}`);
-                if (!reconnecting) {
-                    reconnecting = true;
-                    panel(red("Terputus, reconnect..."), connectedDevice);
-                    setTimeout(() => startBot(), 2500);
-                }
-            }
-        });
+      try {
+        await commandHandler(axiom, msg, from, text);
+      } catch (e) {
+        errCount++;
+        logLast(red("Command error: " + e.message));
+      }
+    });
 
-        // CREDS UPDATE
-        axiom.ev.on("creds.update", saveCreds);
+    // ANTI CRASH
+    process.on("uncaughtException", (err) => {
+      errCount++;
+      logLast(red("Error: " + err.message));
+      panel(red("Error!"), "Running");
+    });
+    process.on("unhandledRejection", (err) => {
+      errCount++;
+      logLast(red("Reject: " + err));
+      panel(red("Error!"), "Running");
+    });
 
-        // MESSAGE HANDLER
-        axiom.ev.on("messages.upsert", async ({ messages }) => {
-            const msg = messages[0];
-            if (!msg.message) return;
-            if (!msg.key.fromMe) msgCount++;
-
-            const from = msg.key.remoteJid.split("@")[0]; // tampilkan nomor user saja
-            const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
-
-            pushLog(`${from} → ${text}`);
-            panel("Terhubung ✓", connectedDevice);
-
-            try {
-                await commandHandler(axiom, msg, from, text);
-            } catch (e) {
-                errCount++;
-                pushLog(`Error di commandHandler: ${e.message}`);
-                console.log(red("Error di commandHandler:"), e);
-            }
-        });
-
-        // ANTI CRASH
-        process.on("uncaughtException", (err) => {
-            errCount++;
-            pushLog(`Uncaught Exception: ${err.message}`);
-            panel(red("Error!"), connectedDevice);
-            console.log(err);
-        });
-        process.on("unhandledRejection", (err) => {
-            errCount++;
-            pushLog(`Unhandled Rejection: ${err}`);
-            panel(red("Error!"), connectedDevice);
-            console.log(err);
-        });
-
-    } catch (e) {
-        pushLog(`Startup Error: ${e.message}`);
-        console.log(red("Startup Error:"), e);
-        setTimeout(startBot, 2000);
-    }
+  } catch (e) {
+    console.log(red("Startup Error:"), e);
+    setTimeout(startBot, 2000);
+  }
 }
 
 startBot();
