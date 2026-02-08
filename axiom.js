@@ -49,18 +49,18 @@ function logLast(msg) {
 // PANEL
 function panel(status, device, ping = "-", showSource = false) {
   console.clear();
-
-  const col1 = 22; // lebar kolom kiri agar stabil
-  const col2 = 22; // lebar kolom kanan agar stabil
-
   console.log(`
 ┌─────────────────────────────────────────────┐
 │          ${green("WHATSAPP BOT PANEL ULTRA")}        │
 ├─────────────────────────────────────────────┤
-│ ${pad("Status  : " + status, col1)}${pad("Device  : " + device, col2)}
-│ ${pad("Uptime  : " + formatUptime(Date.now() - startTime), col1)}${pad("Ping : " + ping, col2)}
-│ ${pad("CPU/RAM : " + lastCPU + " ms | " + getRam(), col1 + col2)}
-│ ${pad("Msg In  : " + msgCount, col1)}${pad("Errors : " + errCount, col2)}
+│ Status : ${status}
+│ Device : ${device}
+│ Uptime : ${formatUptime(Date.now() - startTime)}
+│ CPU    : ${lastCPU} ms
+│ RAM    : ${getRam()}
+│ Ping   : ${ping}
+│ Msg In : ${msgCount}
+│ Errors : ${errCount}
 ├─────────────────────────────────────────────┤
 │ Menu Interaktif:
 │ 1) Restart Bot
