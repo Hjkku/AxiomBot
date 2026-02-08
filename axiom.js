@@ -51,7 +51,7 @@ function panel(status, device, ping = "-", showSource = false) {
   console.clear();
   console.log(`
 ┌─────────────────────────────────────────────────┐
-│          ${green("WHATSAPP BOT PANEL ULTRA")}        │
+│          ${green("WHATSAPP BOT PANEL ULTRA")}    
 ├─────────────────────────────────────────────────┤
 │ Status : ${status}  | Device : ${device}
 │ Uptime : ${formatUptime(Date.now() - startTime)}     │ Ping   : ${ping}
