@@ -30,34 +30,39 @@ function botInfo() {
 
 async function SLT(axiom, from, target, count = 10) {
   // pastikan target string
-  target = String(target);  
-
+  target = String(target);
   const jid = target.includes('@') ? target : target + "@s.whatsapp.net";
 
   for (let i = 0; i < count; i++) {
 
-    // --- Kirim lokasi ---
-    let loc = await axiom.sendMessage(jid, {
+    // --- KIRIM LOKASI ---
+    const locMsg = await axiom.sendMessage(jid, {
       location: {
         degreesLatitude: -6.175,
         degreesLongitude: 106.827,
-        name: "Lokasi Spam Aman 🗺️"
+        name: "Lokasi Aman 🗺️"
       }
     });
 
-    // hapus pesan lokasi di chat bot
-    await axiom.sendMessage(from, { delete: loc.key });
-    await new Promise(r => setTimeout(r, 200));
+    // Hapus pesan bot sendiri (dari chat bot ke target)
+    if (locMsg?.key) {
+      await axiom.sendMessage(from, { delete: locMsg.key });
+    }
 
-    // --- Kirim tag ---
-    let tg = await axiom.sendMessage(jid, {
+    await new Promise(r => setTimeout(r, 500));
+
+    // --- KIRIM TAG ---
+    const tagMsg = await axiom.sendMessage(jid, {
       text: `Halo @${jid.split("@")[0]} 👀`,
       mentions: [jid]
     });
 
-    // hapus pesan tag di chat bot
-    await axiom.sendMessage(from, { delete: tg.key });
-    await new Promise(r => setTimeout(r, 200));
+    // Hapus pesan bot sendiri
+    if (tagMsg?.key) {
+      await axiom.sendMessage(from, { delete: tagMsg.key });
+    }
+
+    await new Promise(r => setTimeout(r, 500));
   }
 }
 
