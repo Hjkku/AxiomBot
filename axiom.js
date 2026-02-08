@@ -199,18 +199,25 @@ async function startBot() {
 
       if (!msg.key.fromMe) msgCount++;
 
-      const fromJid = msg.key.remoteJid;
-      const fromNum = msg.key.participant?.split("@")[0] || fromJid.split("@")[0];
-      const text =
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        "";
+      // DETEKSI PENGIRIM
+      let senderNum;
+      if (msg.key.fromMe) {
+        senderNum = "BOT";
+      } else if (msg.key.participant) {
+        // Pesan dari grup
+        senderNum = msg.key.participant.split("@")[0];
+      } else {
+        // Chat pribadi
+        senderNum = msg.key.remoteJid.split("@")[0];
+      }
 
-      logLast(`${fromNum} → ${text}`);
+      const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+
+      logLast(`${senderNum} → ${text}`);
       panel("Terhubung ✓", axiom.user.id.split(":")[0]);
 
       try {
-        await commandHandler(axiom, msg, fromJid, text); // gunakan JID lengkap untuk command
+        await commandHandler(axiom, msg, msg.key.remoteJid, text); // gunakan JID lengkap untuk command
       } catch (e) {
         errCount++;
         logLast(red("Command error: " + e.message));
@@ -238,6 +245,4 @@ async function startBot() {
 
 startBot();
 
-module.exports = {
-  logLast
-};
+module.exports = { logLast };
